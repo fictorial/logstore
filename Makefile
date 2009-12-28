@@ -10,7 +10,7 @@ store.o: store.c store.h
 	gcc -g -c store.c -std=c99
 
 test_store: test_store.o libstore.a
-	gcc -o test_store test_store.o -L. -lstore
+	gcc -o test_store test_store.o -L. -lstore -pthread
 
 test_store.o: test_store.c store.h
 	gcc -g -c test_store.c -std=c99
