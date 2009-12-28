@@ -9,10 +9,8 @@ libstore.a: store.o
 store.o: store.c store.h
 	gcc -g -c store.c -std=c99
 
-test_store: test_store.c libstore.a
-	rm -f log log__index
-	gcc -o test_store -std=c99 -g test_store.c -L. -lstore
-	./test_store
+test_store: test_store.o libstore.a
+	gcc -o test_store test_store.o -L. -lstore -pthread
 
 check: test_store
 

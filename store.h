@@ -7,6 +7,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <stdint.h>
+#include <pthread.h>
 
 struct store {
     int lfd, ifd;
@@ -15,6 +16,7 @@ struct store {
     size_t imm_sz;
     uint64_t icount, icap;
     uint32_t igrowths;
+    pthread_mutex_t mutex;
 };
 
 struct stored {
