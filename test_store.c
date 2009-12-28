@@ -17,7 +17,7 @@ void test_open_new_log() {
     unlink("log");
     unlink("log__index");
     struct store s;
-    assert(0 == store_open(&s, "log"));
+    assert(STORE_OK == store_open(&s, "log"));
     assert(s.ifd > 2); // [0,2] stdin/out/err
     assert(s.lfd > 2);
     assert(s.lsz == 0);
@@ -25,14 +25,14 @@ void test_open_new_log() {
     assert(s.icap > 0);
     assert(s.imm != NULL);
     assert(s.imm_sz > 0);
-    assert(0 == store_close(&s));
+    assert(STORE_OK == store_close(&s));
     puts("test_open_new_log: PASS");
 }
 
 void test_open_existing_but_empty_log() {
     puts(__FUNCTION__);
     struct store s;
-    assert(0 == store_open(&s, "log"));
+    assert(STORE_OK == store_open(&s, "log"));
     assert(s.ifd > 2); // [0,2] stdin/out/err
     assert(s.lfd > 2);
     assert(s.lsz == 0);
@@ -40,43 +40,43 @@ void test_open_existing_but_empty_log() {
     assert(s.icap > 0);
     assert(s.imm != NULL);
     assert(s.imm_sz > 0);
-    assert(0 == store_close(&s));
+    assert(STORE_OK == store_close(&s));
     puts("test_open_existing_but_empty_log: PASS");
 }
 
 void test_id_generation() {
     puts(__FUNCTION__);
     struct store s;
-    assert(0 == store_open(&s, "log"));
+    assert(STORE_OK == store_open(&s, "log"));
     for (int i=0; i<ENTRY_COUNT; ++i) {
         struct stored v;
-        assert(0 == store_genid(&s, &v));
+        assert(STORE_OK == store_genid(&s, &v));
         assert(v.id == i);
     }
-    assert(0 == store_close(&s));
+    assert(STORE_OK == store_close(&s));
     puts("test_id_generation: PASS");
 }
 
 void test_put() {
     puts(__FUNCTION__);
     struct store s;
-    assert(0 == store_open(&s, "log"));
+    assert(STORE_OK == store_open(&s, "log"));
     for (int i=0; i<ENTRY_COUNT; ++i) {
         struct stored v = STORED_PUT_INITIALIZER(&i, sizeof(int));
         v.id = i;
-        assert(0 == store_put(&s, &v));
+        assert(STORE_OK == store_put(&s, &v));
     }
     struct stat lst;
     assert(fstat(s.lfd, &lst) != -1);
     assert(lst.st_size == ENTRY_COUNT * (sizeof(uint64_t)*2 + sizeof(int)));
-    assert(0 == store_close(&s));
+    assert(STORE_OK == store_close(&s));
     puts("test_put: PASS");
 }
 
 void test_open_existing_non_empty_log() {
     puts(__FUNCTION__);
     struct store s;
-    assert(0 == store_open(&s, "log"));
+    assert(STORE_OK == store_open(&s, "log"));
     assert(s.ifd > 2); // [0,2] stdin/out/err
     assert(s.lfd > 2);
     assert(s.lsz == ENTRY_COUNT * (sizeof(uint64_t)*2 + sizeof(int)));
@@ -84,22 +84,22 @@ void test_open_existing_non_empty_log() {
     assert(s.icap >= ENTRY_COUNT);
     assert(s.imm != NULL);
     assert(s.imm_sz > 0);
-    assert(0 == store_close(&s));
+    assert(STORE_OK == store_close(&s));
     puts("test_open_existing_non_empty_log: PASS");
 }
 
 void test_get() {
     puts(__FUNCTION__);
     struct store s;
-    assert(0 == store_open(&s, "log"));
+    assert(STORE_OK == store_open(&s, "log"));
     for (int i=0; i<ENTRY_COUNT; ++i) {
         struct stored v = STORED_GET_INITIALIZER(i);
-        assert(0 == store_get(&s, &v));
+        assert(STORE_OK == store_get(&s, &v));
         assert(v.sz == sizeof(int));
         assert(*(int *)v.data == i);
         free(v.data);
     }
-    assert(0 == store_close(&s));
+    assert(STORE_OK == store_close(&s));
     puts("test_get: PASS");
 }
 
@@ -111,29 +111,29 @@ void test_get() {
 void test_confict_detection() {
     puts(__FUNCTION__);
     struct store s;
-    assert(0 == store_open(&s, "log"));
+    assert(STORE_OK == store_open(&s, "log"));
     struct stored a = STORED_GET_INITIALIZER(0);
-    assert(0 == store_get(&s, &a));
+    assert(STORE_OK == store_get(&s, &a));
     struct stored b = STORED_GET_INITIALIZER(0);
-    assert(0 == store_get(&s, &b));
-    assert(0 == store_put(&s, &a));
+    assert(STORE_OK == store_get(&s, &b));
+    assert(STORE_OK == store_put(&s, &a));
     assert(a.rev == b.rev + 1);    
     assert(store_put(&s, &b));
-    assert(0 == store_close(&s));
+    assert(STORE_OK == store_close(&s));
     puts("test_confict_detection: PASS");
 }
 
 void test_remove() {
     puts(__FUNCTION__);
     struct store s;
-    assert(0 == store_open(&s, "log"));
+    assert(STORE_OK == store_open(&s, "log"));
     struct stored v = STORED_GET_INITIALIZER(0);
-    assert(0 == store_get(&s, &v));   // exists from earlier tests
-    assert(0 == store_rm(&s, &v));
-    assert(1 == store_get(&s, &v));   // gone
+    assert(STORE_OK == store_get(&s, &v));       // exists from earlier tests
+    assert(STORE_OK == store_rm(&s, &v));
+    assert(STORE_ENOENT == store_get(&s, &v));   // gone
     v.id = (uint64_t) -1;
-    assert(1 == store_rm(&s, &v));    // way beyond any existing entry's ID
-    assert(0 == store_close(&s));
+    assert(STORE_EINVAL == store_rm(&s, &v));    // way beyond any existing entry's ID
+    assert(STORE_OK == store_close(&s));
     puts("test_remove: PASS");
 }
 

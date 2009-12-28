@@ -14,24 +14,36 @@
 #define OTHER_OPEN_FLAGS 0
 #endif
 
+// See open(2) and EINTR. 
+
 #define retry(expr) ({ \
     int __rc; \
     do __rc = (expr); \
     while (__rc == -1 && errno == EINTR); __rc; })
 
-#define IFILE_GROW_BY   10000
+// Index file entries are 64-bit integers.
+
 #define IENTRY_SZ       8
 
-// A store is a log file and an index file (path.i)
+// This index file growth factor is arbitrary.  The idea is that the index file
+// is often going to be memory-mapped for performance reasons, but
+// memory-mapped files cannot grow through a memory-map.  Thus, we treat the
+// index file as a sparse file and grow it by seeking+writing beyond the EOF by
+// a certain amount and remapping the file.
+
+#define IFILE_GROW_BY   10000
+
+// A store is a log file and an index file (<path>__index)
 
 int store_open(struct store *s, const char *path) {
-    if (!s || !path) return 1;
+    if (!s || !path) 
+        return STORE_EINVAL;
 
     // Open log file.
 
     if (-1 == (s->lfd = open(path, O_CREAT|O_APPEND|O_RDWR|OTHER_OPEN_FLAGS, 0777))) {
         perror("open log file");
-        return 1;
+        return STORE_EIO;
     }
 
     // Get size of log file.
@@ -40,20 +52,21 @@ int store_open(struct store *s, const char *path) {
     if (fstat(s->lfd, &st) < 0 || !S_ISREG(st.st_mode)) {
         perror("open log file");
         close(s->lfd);
-        return 1;
+        return STORE_EIO;
     }
     s->lsz = st.st_size;
 
     // Open index file.
 
     char *ipath = malloc(strlen(path) + strlen("__index") + 1);
+    if (!ipath) return STORE_ENOMEM;
     sprintf(ipath, "%s__index", path);
     s->ifd = open(ipath, O_CREAT|O_RDWR|OTHER_OPEN_FLAGS, 0777);
     free(ipath);
     if (-1 == s->ifd) {
         perror("open index file");
         close(s->lfd);
-        return 1;
+        return STORE_EIO;
     }
 
     // Determine the capacity of the index file.
@@ -63,7 +76,7 @@ int store_open(struct store *s, const char *path) {
         perror("index file fstat");
         close(s->ifd);
         close(s->lfd);
-        return 1;
+        return STORE_EIO;
     }
     s->icap = ist.st_size / IENTRY_SZ;
 
@@ -79,7 +92,7 @@ int store_open(struct store *s, const char *path) {
             perror("index file growth");
             close(s->ifd);
             close(s->lfd);
-            return 1;
+            return STORE_EIO;
         }
         s->icap = IFILE_GROW_BY;
         s->igrowths++;
@@ -91,7 +104,7 @@ int store_open(struct store *s, const char *path) {
         perror("read entry count");
         close(s->lfd);
         close(s->ifd);
-        return 1;
+        return STORE_EIO;
     }
 
     // Try to mmap the index file; falls back to regular file i/o on failure.
@@ -107,11 +120,12 @@ int store_open(struct store *s, const char *path) {
 
     pthread_mutex_init(&s->mutex, NULL);
 
-    return 0;
+    return STORE_OK;
 }
 
 int store_genid(struct store *s, struct stored *v) {
-    if (!s || !v) return 1;
+    if (!s || !v) 
+        return STORE_EINVAL;
 
     pthread_mutex_lock(&s->mutex);
 
@@ -124,7 +138,7 @@ int store_genid(struct store *s, struct stored *v) {
     } else if (retry(pwrite(s->ifd, &s->icount, 8, 0)) < 8) {
         perror("write next id");
         pthread_mutex_unlock(&s->mutex);
-        return 1;
+        return STORE_EIO;
     }
 
     // If the index file is too big and we're using mmap to access its content,
@@ -140,7 +154,7 @@ int store_genid(struct store *s, struct stored *v) {
         if (retry(pwrite(s->ifd, &zero, sizeof(char), new_sz - sizeof(char))) < sizeof(char)) {
             perror("grow index file");
             pthread_mutex_unlock(&s->mutex);
-            return 1;
+            return STORE_EIO;
         }
 
         s->igrowths++;
@@ -156,7 +170,7 @@ int store_genid(struct store *s, struct stored *v) {
     }
     
     pthread_mutex_unlock(&s->mutex);
-    return 0;
+    return STORE_OK;
 }
 
 // index entries are 64-bit numbers with high 16 bits for revision, low 48 bits for log offset.
@@ -194,7 +208,7 @@ static inline off_t ifile_ofs(uint64_t id) {
 
 static inline int ifile_read(struct store *s, uint64_t id, uint64_t *out_ientry) {
     if (id > s->icap)
-        return 1;
+        return STORE_EINVAL;
 
     off_t iofs = ifile_ofs(id);
 
@@ -202,17 +216,17 @@ static inline int ifile_read(struct store *s, uint64_t id, uint64_t *out_ientry)
         *out_ientry = *(uint64_t *)(s->imm + iofs);
     } else if (retry(pread(s->ifd, &out_ientry, IENTRY_SZ, iofs)) < IENTRY_SZ) {
         perror("read index entry");
-        return 1;
+        return STORE_EIO;
     }
 
-    return 0;
+    return STORE_OK;
 }
 
 // Write an entry to the index file using the mmap if available.
 
 static inline int ifile_write(struct store *s, uint64_t id, uint64_t ofs, uint16_t rev) {
     if (id > s->icap)
-        return 1;
+        return STORE_EINVAL;
 
     uint64_t ientry = ientry_make(ofs, rev);
     off_t iofs = ifile_ofs(id);
@@ -221,14 +235,15 @@ static inline int ifile_write(struct store *s, uint64_t id, uint64_t ofs, uint16
         *(uint64_t *)(s->imm + iofs) = ientry;
     } else if (retry(pwrite(s->ifd, &ientry, IENTRY_SZ, iofs)) < IENTRY_SZ) {
         perror("updated index entry");
-        return 1;
+        return STORE_EIO;
     }
 
-    return 0;
+    return STORE_OK;
 }
 
 int store_put(struct store *s, struct stored *v) {
-    if (!s || !v || !v->data || !v->sz) return 1;
+    if (!s || !v || !v->data || !v->sz) 
+        return STORE_EINVAL;
 
     pthread_mutex_lock(&s->mutex);
 
@@ -237,7 +252,7 @@ int store_put(struct store *s, struct stored *v) {
     uint64_t ientry = 0;
     if (ifile_read(s, v->id, &ientry) || ientry_rev(ientry) != v->rev) {
         pthread_mutex_unlock(&s->mutex);
-        return 1;
+        return STORE_EIO;
     }
 
     // Append record descriptor and record to log file.
@@ -250,34 +265,42 @@ int store_put(struct store *s, struct stored *v) {
     if (retry(writev(s->lfd, iov, 2)) < sizeof(desc) + v->sz) {
         perror("append to log");
         pthread_mutex_unlock(&s->mutex);
-        return 1;
+        return STORE_EIO;
     }
 
     // Update index file entry.
 
-    if (ifile_write(s, v->id, s->lsz, v->rev + 1)) {
+    int rc = ifile_write(s, v->id, s->lsz, v->rev + 1);
+    if (STORE_OK != rc) {
         pthread_mutex_unlock(&s->mutex);
-        return 1;
+        return rc;
     }
 
     v->rev++;
     s->lsz += sizeof(desc) + v->sz;
 
     pthread_mutex_unlock(&s->mutex);
-    return 0;
+    return STORE_OK;
 }
 
 int store_get(struct store *s, struct stored *v) {
-    if (!s || !v || v->data) return 1;
+    if (!s || !v || v->data) 
+        return STORE_EINVAL;
 
     pthread_mutex_lock(&s->mutex);
 
     // Get index entry for this id.
 
     uint64_t ientry;
-    if (ifile_read(s, v->id, &ientry)) {
+    int rc = ifile_read(s, v->id, &ientry);
+    if (STORE_OK != rc) {
         pthread_mutex_unlock(&s->mutex);
-        return 1;
+        return rc;
+    }
+    
+    if (ientry == (uint64_t) -1) {
+        pthread_mutex_unlock(&s->mutex);
+        return STORE_ENOENT;
     }
 
     // Read the record descriptor from the log.
@@ -286,21 +309,21 @@ int store_get(struct store *s, struct stored *v) {
     if (retry(pread(s->lfd, desc, sizeof(desc), ientry_ofs(ientry))) < sizeof(desc)) {
         perror("read record descriptor");
         pthread_mutex_unlock(&s->mutex);
-        return 1;
+        return STORE_EIO;
     }
 
     // Deleted? Never put? Then, id and size will be 0.
 
     if (0 == desc[0] && 0 == desc[1]) {
         pthread_mutex_unlock(&s->mutex);
-        return 1;
+        return STORE_ENOENT;
     }
 
     // Sanity check that the ID in the file is the ID expected.
 
     if (desc[0] != v->id) {
         pthread_mutex_unlock(&s->mutex);
-        return 1;
+        return STORE_ETAMPER;
     }
 
     // Read the log record into user data.
@@ -308,14 +331,14 @@ int store_get(struct store *s, struct stored *v) {
     if (!(v->data = malloc(desc[1]))) {
         perror("malloc for log record data");
         pthread_mutex_unlock(&s->mutex);
-        return 1;
+        return STORE_ENOMEM;
     }
 
     if (retry(pread(s->lfd, v->data, desc[1], ientry_ofs(ientry) + sizeof(desc))) < desc[1]) {
         perror("read log record");
         free(v->data);
         pthread_mutex_unlock(&s->mutex);
-        return 1;
+        return STORE_EIO;
     }
 
     v->sz  = desc[1];
@@ -323,38 +346,48 @@ int store_get(struct store *s, struct stored *v) {
     v->rev = ientry_rev(ientry);
 
     pthread_mutex_unlock(&s->mutex);
-    return 0;
+    return STORE_OK;
 }
 
 int store_rm(struct store *s, struct stored *v) {
-    if (!s || !v) return 1;
+    if (!s || !v) 
+        return STORE_EINVAL;
 
     pthread_mutex_lock(&s->mutex);
 
     // Clear the index file entry for the ID.
     // Note: we do _not_ free up the ID for reuse.
 
-    uint64_t ientry = 0;
-    if (ifile_write(s, v->id, 0, 0)) {
+    int rc = ifile_write(s, v->id, (uint64_t) -1, (uint16_t) -1);
+    if (STORE_OK != rc) {
         pthread_mutex_unlock(&s->mutex);
-        return 1;
+        return rc;
     }
 
-    // Append a "delete record" (size==0) to the log file.
+    // Append a "delete record" (size==-1) to the log file.
 
-    uint64_t desc[2] = { v->id, 0 };
+    uint64_t desc[2] = { v->id, (uint64_t) -1 };
     if (retry(write(s->lfd, desc, sizeof(desc))) < sizeof(desc)) {
         perror("append delete record");
         pthread_mutex_unlock(&s->mutex);
-        return 1;
+        return STORE_EIO;
     }
 
+    if (v->data) {
+        free(v->data);
+        v->data = NULL;
+    }
+
+    v->sz  = 0;
+    v->ofs = (off_t) -1;
+
     pthread_mutex_unlock(&s->mutex);
-    return 0;
+    return STORE_OK;
 }
 
 int store_sync(struct store *s) {
-    if (!s) return 1;
+    if (!s) 
+        return STORE_EINVAL;
 
     pthread_mutex_lock(&s->mutex);
 
@@ -366,11 +399,12 @@ int store_sync(struct store *s) {
         fsync(s->ifd);
 
     pthread_mutex_unlock(&s->mutex);
-    return 0;
+    return STORE_OK;
 }
 
 int store_close(struct store *s) {
-    if (!s) return 1;
+    if (!s) 
+        return STORE_EINVAL;
 
     pthread_mutex_lock(&s->mutex);
 
@@ -383,5 +417,18 @@ int store_close(struct store *s) {
     pthread_mutex_unlock(&s->mutex);
     pthread_mutex_destroy(&s->mutex);
 
-    return 0;
+    return STORE_OK;
+}
+
+char *store_strerror(int code) {
+    switch (code) {
+        case STORE_OK:           return "success";
+        case STORE_EIO:          return "input/output error";
+        case STORE_ENOMEM:       return "out of memory";
+        case STORE_EINVAL:       return "bad argument(s)";
+        case STORE_ENOENT:       return "no such entity";
+        case STORE_ETAMPER:      return "data was tampered with";
+    }
+    
+    return NULL;
 }

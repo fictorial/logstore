@@ -27,6 +27,15 @@ struct stored {
     void *data;
 };
 
+enum {
+    STORE_OK,           // success
+    STORE_EIO,          // input/output error
+    STORE_ENOMEM,       // out of memory
+    STORE_EINVAL,       // bad argument(s)
+    STORE_ENOENT,       // no such entity
+    STORE_ETAMPER,      // data was tampered with
+};
+
 int store_open(struct store *s, const char *path);
 int store_sync(struct store *s);
 int store_close(struct store *s);
@@ -34,6 +43,7 @@ int store_genid(struct store *s, struct stored *v);
 int store_put(struct store *s, struct stored *v);
 int store_get(struct store *s, struct stored *v);
 int store_rm(struct store *s, struct stored *v);
+char *store_strerror(int code);
 
 #define STORED_PUT_INITIALIZER(data,sz) { 0, 0, sz, 0, data }
 #define STORED_GET_INITIALIZER(id) { id, 0, 0, 0, NULL }
