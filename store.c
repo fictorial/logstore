@@ -333,10 +333,12 @@ int store_sync(struct store *s) {
 
 int store_close(struct store *s) {
     if (!s) return 1;
-    store_sync(s);
+
     if (s->imm && s->imm_sz) 
         munmap(s->imm, s->imm_sz);
+
     close(s->lfd);
     close(s->ifd);
+
     return 0;
 }
