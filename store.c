@@ -349,6 +349,7 @@ int store_rm(struct store *s, struct stored *v) {
         return 1;
     }
 
+    pthread_mutex_unlock(&s->mutex);
     return 0;
 }
 
