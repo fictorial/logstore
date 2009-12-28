@@ -9,19 +9,25 @@ libstore.a: store.o
 store.o: store.c store.h
 	gcc -g -c store.c -std=c99
 
-test_store: test_store.o libstore.a
-	gcc -o test_store test_store.o -L. -lstore
+test_store: test_store.c libstore.a
+	rm -f log log__index
+	gcc -o test_store -std=c99 -g test_store.c -L. -lstore
+	./test_store
 
-test_store.o: test_store.c store.h
-	gcc -g -c test_store.c -std=c99
+check: test_store
 
 test: test_store
-	@rm -f log log__index
-	@./test_store
 
-check: test
+bench_store: bench_store.c libstore.a
+	rm -f log log__index
+	gcc -o bench_store -std=c99 -g bench_store.c -L. -lstore
+	./bench_store
+
+bench: bench_store
+
+benchmark: bench_store
 
 clean:
-	rm -f test_store test_store.o libstore.a store.o log log__index
+	rm -rf test_store libstore.a store.o log log__index bench_store *.dSYM
 
-.PHONY: all lib test clean check
+.PHONY: all lib test clean check bench benchmark
