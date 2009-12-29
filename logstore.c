@@ -21,7 +21,7 @@
 #endif
 
 // This index file growth factor is arbitrary.  The idea is that the index file
-// is often going to be memory-mapped for perforemoveance reasons, but
+// is often going to be memory-mapped for performance reasons, but
 // memory-mapped files cannot grow through a memory-map.  Thus, we treat the
 // index file as a sparse file and grow it by seeking+writing beyond the EOF by
 // a certain amount and remapping the file.
