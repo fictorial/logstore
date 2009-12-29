@@ -30,8 +30,7 @@ void benchmark_puts_no_sync_int_value() {
     gettimeofday(&end, NULL);
     double puts_per_second = PUT_COUNT / TIME_DELTA_SECONDS(start, end);
     printf("%s: %u puts / second\n", __FUNCTION__, (unsigned)puts_per_second);
-    printf("%s: %d index file growths performed first_put_int_id=%llu\n", 
-           __FUNCTION__, s.igrowths, first_put_int_id);
+    printf("%s: %d index file growths performed\n", __FUNCTION__, s.igrowths);
     assert(0 == store_close(&s));
 }
 
@@ -224,6 +223,8 @@ void benchmark_random_gets_1KiB_value() {
 }
 
 int main(int argc, char **argv) {
+    unlink("log");
+    unlink("log-index");
     benchmark_puts_no_sync_int_value();
     // VERY slow on mac os x at least.
     //benchmark_puts_sync_every_put_int_value();

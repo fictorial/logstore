@@ -13,21 +13,19 @@ test_store: test_store.c libstore.a
 	gcc -o test_store -std=c99 -O2 test_store.c -L. -lstore -pthread
 
 check: test_store
-	rm -f log log__index
 	./test_store
 
 test: check
 
 bench_store: bench_store.c libstore.a
-	rm -f log log__index
 	gcc -o bench_store -std=c99 -O2 bench_store.c -L. -lstore
-	./bench_store
 
 bench: bench_store
+	./bench_store
 
-benchmark: bench_store
+benchmark: bench
 
 clean:
-	rm -rf test_store libstore.a store.o log log__index bench_store *.dSYM
+	rm -rf test_store libstore.a store.o log log-index bench_store *.dSYM
 
 .PHONY: all lib test clean check bench benchmark

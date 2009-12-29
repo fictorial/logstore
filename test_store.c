@@ -23,7 +23,7 @@ int failures = 0, tests = 0;
 
 void test_open_new_log() {
     unlink("log");
-    unlink("log__index");
+    unlink("log-index");
     struct store s;
     CHECK(STORE_OK == store_open(&s, "log"));
     CHECK(s.ifd > 2); // [0,2] stdin/out/err
@@ -132,7 +132,7 @@ void test_remove() {
 
 int main(int argc, char **argv) {
     unlink("log");
-    unlink("log__index");
+    unlink("log-index");
     test_open_new_log();
     test_open_existing_but_empty_log();
     test_id_generation();

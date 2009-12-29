@@ -33,7 +33,7 @@
 
 #define IFILE_GROW_BY   10000
 
-// A store is a log file and an index file (<path>__index)
+// A store is a log file and an index file (<path>-index)
 
 int store_open(struct store *s, const char *path) {
     if (!s || !path) 
@@ -58,9 +58,9 @@ int store_open(struct store *s, const char *path) {
 
     // Open index file.
 
-    char *ipath = malloc(strlen(path) + strlen("__index") + 1);
+    char *ipath = malloc(strlen(path) + strlen("-index") + 1);
     if (!ipath) return STORE_ENOMEM;
-    sprintf(ipath, "%s__index", path);
+    sprintf(ipath, "%s-index", path);
     s->ifd = open(ipath, O_CREAT|O_RDWR|OTHER_OPEN_FLAGS, 0777);
     free(ipath);
     if (-1 == s->ifd) {
