@@ -24,6 +24,6 @@
 
   use LDFLAGS -llogstore -pthread
 
-  The API should be very straightforward.
+  The API should be straightforward; see logstore.h
 
 Brian Hammond, Fictorial
