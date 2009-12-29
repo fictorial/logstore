@@ -38,7 +38,7 @@ typedef uint32_t LogFileEntryHeader[2];            // id, size
 // Index file entries are 64-bit numbers with high 16 bits for revision, low 48
 // bits for log offset.  max revisions: ~65K; max log file size: ~260GiB.  an
 // index file is a sparse file wherein the entry for id X is LogStored at byte
-// offset X*8.
+// offset 8+X*8.
 
 typedef uint64_t IndexEntry;                       // [rev|offset]
 
