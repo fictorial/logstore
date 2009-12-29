@@ -1,6 +1,3 @@
-#include "store_private.h"
-#include "store.h"
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,6 +5,11 @@
 #include <sys/time.h> 
 #include <unistd.h>
 #include <assert.h>
+#include <stdint.h>
+
+#include "store_private.h"
+#include "store.h"
+
 
 #define ENTRY_COUNT 1000
 

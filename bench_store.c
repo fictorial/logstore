@@ -1,12 +1,14 @@
-#include "store_private.h"
-#include "store.h"
-
+#include <assert.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>
-#include <assert.h>
 #include <sys/time.h> 
+#include <time.h>
 #include <unistd.h>
+
+#include "store_private.h"
+#include "store.h"
 
 #define TIME_DELTA_MICRO(start, end) \
   (((double)end.tv_sec   * 1000000.0 + (double)end.tv_usec) \

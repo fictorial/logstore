@@ -1,8 +1,9 @@
 #ifndef STORE_H
 #define STORE_H
 
-#include <stdint.h>
-#include <stdlib.h>
+#ifdef __cplusplus
+extern "C" {
+#endif 
 
 struct store;
 typedef struct store *store;
@@ -28,5 +29,9 @@ store_rc store_put   (store, store_id, void *, size_t, store_revision);
 store_rc store_get   (store, store_id, void **, size_t *, store_revision *);
 store_rc store_rm    (store, store_id);
 char *store_strerror (store_rc code);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
