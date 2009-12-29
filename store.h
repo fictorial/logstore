@@ -1,50 +1,32 @@
-#pragma once
+#ifndef STORE_H
+#define STORE_H
 
-#define _GNU_SOURCE
-#define _FILE_OFFSET_BITS 64
-
-#include <sys/types.h>
-#include <fcntl.h>
-#include <unistd.h>
 #include <stdint.h>
-#include <pthread.h>
+#include <stdlib.h>
 
-struct store {
-    int lfd, ifd;
-    off_t lsz;
-    void *imm;
-    size_t imm_sz;
-    uint64_t icount, icap;
-    uint32_t igrowths;
-    pthread_mutex_t mutex;
-};
+struct store;
+typedef struct store *store;
 
-struct stored {
-    uint64_t id;
-    off_t ofs;
-    size_t sz;
-    uint16_t rev;
-    void *data;
-};
+typedef enum {
+    STORE_OK,        // success
+    STORE_EIO,       // input/output error
+    STORE_ENOMEM,    // out of memory
+    STORE_EINVAL,    // bad argument(s)
+    STORE_ENOENT,    // no such entity
+    STORE_ECONFLICT, // version conflict
+    STORE_ETAMPER    // data was tampered with
+} store_rc;
 
-enum {
-    STORE_OK,           // success
-    STORE_EIO,          // input/output error
-    STORE_ENOMEM,       // out of memory
-    STORE_EINVAL,       // bad argument(s)
-    STORE_ENOENT,       // no such entity
-    STORE_ETAMPER,      // data was tampered with
-};
+typedef uint64_t store_id;
+typedef uint16_t store_revision;
 
-int store_open(struct store *s, const char *path);
-int store_sync(struct store *s);
-int store_close(struct store *s);
-int store_genid(struct store *s, struct stored *v);
-int store_put(struct store *s, struct stored *v);
-int store_get(struct store *s, struct stored *v);
-int store_rm(struct store *s, struct stored *v);
-char *store_strerror(int code);
+store_rc store_open  (store *, const char *path);
+store_rc store_close (store *);
+store_rc store_sync  (store);
+store_rc store_genid (store, store_id *);
+store_rc store_put   (store, store_id, void *, size_t, store_revision);
+store_rc store_get   (store, store_id, void **, size_t *, store_revision *);
+store_rc store_rm    (store, store_id);
+char *store_strerror (store_rc code);
 
-#define STORED_PUT_INITIALIZER(data,sz) { 0, 0, sz, 0, data }
-#define STORED_GET_INITIALIZER(id) { id, 0, 0, 0, NULL }
-
+#endif
