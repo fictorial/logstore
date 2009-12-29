@@ -211,7 +211,7 @@ int LogStoreMakeID(LogStore store, LogStoreID *outID)
 
     // Save the number of used index entries in the index file (at offset 0).
 
-    if (store->indexFileMapping && store->indexFileMappingSize)
+    if (NULL != store->indexFileMapping && store->indexFileMappingSize > 0)
     {
         *(IndexFileCount *)store->indexFileMapping = store->indexFileCount;
     }
@@ -238,7 +238,7 @@ int LogStoreMakeID(LogStore store, LogStoreID *outID)
     // unmap, grow the file, and remap.
 
     if (store->indexFileCount == store->indexFileCapacity &&
-        store->indexFileMapping && store->indexFileMappingSize)
+        NULL != store->indexFileMapping && store->indexFileMappingSize > 0)
     {
         char zero = 0;
         off_t newSize;
@@ -331,7 +331,7 @@ static inline int indexFileRead(LogStore    store,
 
     off_t offset = indexFileOffsetOf(id);
 
-    if (store->indexFileMapping && store->indexFileMappingSize)
+    if (NULL != store->indexFileMapping && store->indexFileMappingSize > 0)
     {
         *outIndexEntry = *(IndexEntry *)((char *)store->indexFileMapping + offset);
     }
@@ -371,7 +371,7 @@ static inline int indexFileWrite(LogStore         store,
 
     off_t offset = indexFileOffsetOf(id);
 
-    if (store->indexFileMapping && store->indexFileMappingSize)
+    if (NULL != store->indexFileMapping && store->indexFileMappingSize > 0)
     {
         *(IndexEntry *)((char *)store->indexFileMapping + offset) = entry;
     }
@@ -641,7 +641,7 @@ int LogStoreSync(LogStore store)
 
     fsync(store->logFileNo);
 
-    if (store->indexFileMapping && store->indexFileMappingSize)
+    if (NULL != store->indexFileMapping && store->indexFileMappingSize > 0)
     {
         msync(store->indexFileMapping, store->indexFileMappingSize, MS_SYNC);
     }
@@ -666,7 +666,7 @@ int LogStoreClose(LogStore *sp)
 
     LogStoreLock;
 
-    if (store->indexFileMapping && store->indexFileMappingSize)
+    if (NULL != store->indexFileMapping && store->indexFileMappingSize > 0)
     {
         munmap(store->indexFileMapping, store->indexFileMappingSize);
     }
