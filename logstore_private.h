@@ -9,13 +9,15 @@ extern "C"
 struct LogStore 
 {
     int             logFileNo;
+    off_t           logFileSize;
+
     int             indexFileNo;
     int             indexFileCapacity;
     int             indexFileCount;
     int             indexFileGrowthCount;
-    off_t           logFileSize;
     void           *indexFileMapping;
     size_t          indexFileMappingSize;
+
     pthread_mutex_t mutex;
 };
 

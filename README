@@ -1,13 +1,29 @@
-logstore 
+:logstore 
 
-- storage engine for arbitrary data for POSIX systems with spinning hard disks
-- "puts" are efficient, "gets" are as fast as your disk can seek and read
-- reads to be amortized via higher-level caching
-- no caching built-in; very low memory footprint
-- thread-safe (dumb mutex; no performance loss for single-threaded apps)
-- background log compaction
-- entries assigned id numbers by system
-- extensions for Python, Node.js forthcoming
-- basis for embedded object database, datastore server, etc.
+  - a storage engine for arbitrary data for POSIX systems with spinning hard disks
+  - "puts" are efficient by use of an append-only log file for storage
+  - "gets" are as fast as your disk can seek and read
+  - reads to be amortized via higher-level caching
+  - no caching built-in; very low memory footprint
+  - thread-safe (dumb mutex; no performance loss for single-threaded apps)
+  - background log compaction / garbage collection
+  - entries assigned id numbers by logstore
+  - extensions for Python, Node.js forthcoming
+  - expected to be a basis for embedded object databases, datastore server, etc.
+
+:installation
+
+  make
+  make test
+  make bench
+  sudo make install
+
+:usage
+
+  #include <logstore.h>
+
+  use LDFLAGS -llogstore -pthread
+
+  The API should be very straightforward.
 
 Brian Hammond, Fictorial

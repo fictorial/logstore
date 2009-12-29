@@ -44,16 +44,16 @@ typedef uint64_t IndexEntry;                       // [rev|offset]
 
 // A LogStore is a log file and an index file (<path>-index)
 
-int LogStoreOpen(LogStore *sp, const char *path) 
+int LogStoreOpen(LogStore *sp, const char *path)
 {
-    if (NULL == sp || NULL != *sp || NULL == path) 
+    if (NULL == sp || NULL != *sp || NULL == path)
     {
         return kLogStoreInvalidParameter;
     }
 
     LogStore store = calloc(sizeof(struct LogStore), 1);
 
-    if (!store) 
+    if (!store)
     {
         return kLogStoreOutOfMemory;
     }
@@ -62,7 +62,7 @@ int LogStoreOpen(LogStore *sp, const char *path)
 
     int flags = O_CREAT | O_APPEND | O_RDWR | kOtherOpenFlags;
 
-    if (-1 == (store->logFileNo = open(path, flags, 0777))) 
+    if (-1 == (store->logFileNo = open(path, flags, 0777)))
     {
         free(store);
 
@@ -73,8 +73,8 @@ int LogStoreOpen(LogStore *sp, const char *path)
 
     struct stat logFileStat;
 
-    if (fstat(store->logFileNo, &logFileStat) < 0 || 
-        !S_ISREG(logFileStat.st_mode)) 
+    if (fstat(store->logFileNo, &logFileStat) < 0 ||
+        !S_ISREG(logFileStat.st_mode))
     {
         close(store->logFileNo);
         free(store);
@@ -88,7 +88,7 @@ int LogStoreOpen(LogStore *sp, const char *path)
 
     char *ipath = malloc(strlen(path) + strlen("-index") + 1);
 
-    if (NULL == ipath) 
+    if (NULL == ipath)
     {
         return kLogStoreOutOfMemory;
     }
@@ -99,7 +99,7 @@ int LogStoreOpen(LogStore *sp, const char *path)
 
     free(ipath);
 
-    if (-1 == store->indexFileNo) 
+    if (-1 == store->indexFileNo)
     {
         close(store->logFileNo);
         free(store);
@@ -111,7 +111,7 @@ int LogStoreOpen(LogStore *sp, const char *path)
 
     struct stat indexFileStat;
 
-    if (-1 == fstat(store->indexFileNo, &indexFileStat)) 
+    if (-1 == fstat(store->indexFileNo, &indexFileStat))
     {
         close(store->indexFileNo);
         close(store->logFileNo);
@@ -127,21 +127,21 @@ int LogStoreOpen(LogStore *sp, const char *path)
 
     store->indexFileGrowthCount = 0;
 
-    if (store->indexFileCapacity == 0) 
+    if (store->indexFileCapacity == 0)
     {
         char zero = 0;
         off_t newEOF = kIndexFileGrowBy * sizeof(IndexEntry) - sizeof(char);
 
         int bytesWritten = 0;
 
-        do 
+        do
         {
-            bytesWritten = pwrite(store->indexFileNo, &zero, 
+            bytesWritten = pwrite(store->indexFileNo, &zero,
                                   sizeof(char), newEOF);
         }
         while (bytesWritten == -1 && errno == EINTR);
 
-        if (bytesWritten < sizeof(char)) 
+        if (bytesWritten < sizeof(char))
         {
             close(store->indexFileNo);
             close(store->logFileNo);
@@ -154,19 +154,19 @@ int LogStoreOpen(LogStore *sp, const char *path)
         store->indexFileGrowthCount++;
     }
 
-    // Get number of entries in the LogStore from the beginning 
+    // Get number of entries in the LogStore from the beginning
     // of the index file.
 
     int bytesRead = 0;
 
-    do 
+    do
     {
-        bytesRead = read(store->indexFileNo, &store->indexFileCount, 
+        bytesRead = read(store->indexFileNo, &store->indexFileCount,
                          sizeof(store->indexFileCount));
     }
     while (bytesRead == -1 && errno == EINTR);
 
-    if (bytesRead < sizeof(store->indexFileCount)) 
+    if (bytesRead < sizeof(store->indexFileCount))
     {
         close(store->logFileNo);
         close(store->indexFileNo);
@@ -179,11 +179,11 @@ int LogStoreOpen(LogStore *sp, const char *path)
 
     store->indexFileMappingSize = store->indexFileCapacity * sizeof(IndexEntry);
 
-    store->indexFileMapping = mmap(0, store->indexFileMappingSize, 
-                                   PROT_READ | PROT_WRITE, 
+    store->indexFileMapping = mmap(0, store->indexFileMappingSize,
+                                   PROT_READ | PROT_WRITE,
                                    MAP_SHARED, store->indexFileNo, 0);
 
-    if (MAP_FAILED == store->indexFileMapping) 
+    if (MAP_FAILED == store->indexFileMapping)
     {
         store->indexFileMapping = NULL;
         store->indexFileMappingSize = 0;
@@ -198,9 +198,9 @@ int LogStoreOpen(LogStore *sp, const char *path)
     return kLogStoreOK;
 }
 
-int LogStoreMakeID(LogStore store, LogStoreID *outID) 
+int LogStoreMakeID(LogStore store, LogStoreID *outID)
 {
-    if (NULL == store || NULL == outID) 
+    if (NULL == store || NULL == outID)
     {
         return kLogStoreInvalidParameter;
     }
@@ -211,22 +211,22 @@ int LogStoreMakeID(LogStore store, LogStoreID *outID)
 
     // Save the number of used index entries in the index file (at offset 0).
 
-    if (store->indexFileMapping && store->indexFileMappingSize) 
+    if (store->indexFileMapping && store->indexFileMappingSize)
     {
         *(IndexFileCount *)store->indexFileMapping = store->indexFileCount;
-    } 
-    else 
+    }
+    else
     {
         int bytesWritten = 0;
 
-        do 
+        do
         {
-            bytesWritten = pwrite(store->indexFileNo, &store->indexFileCount, 
+            bytesWritten = pwrite(store->indexFileNo, &store->indexFileCount,
                                   sizeof(store->indexFileCount), 0);
         }
         while (bytesWritten == -1 && errno == EINTR);
 
-        if (bytesWritten < sizeof(store->indexFileCount)) 
+        if (bytesWritten < sizeof(store->indexFileCount))
         {
             LogStoreUnlock;
 
@@ -237,8 +237,8 @@ int LogStoreMakeID(LogStore store, LogStoreID *outID)
     // If the index file is too big and we're using mmap to access its content,
     // unmap, grow the file, and remap.
 
-    if (store->indexFileCount == store->indexFileCapacity && 
-        store->indexFileMapping && store->indexFileMappingSize) 
+    if (store->indexFileCount == store->indexFileCapacity &&
+        store->indexFileMapping && store->indexFileMappingSize)
     {
         char zero = 0;
         off_t newSize;
@@ -250,14 +250,14 @@ int LogStoreMakeID(LogStore store, LogStoreID *outID)
 
         int bytesWritten = 0;
 
-        do 
+        do
         {
-            bytesWritten = pwrite(store->indexFileNo, &zero, sizeof(char), 
+            bytesWritten = pwrite(store->indexFileNo, &zero, sizeof(char),
                                   newSize - sizeof(char));
         }
         while (bytesWritten == -1 && errno == EINTR);
 
-        if (bytesWritten < sizeof(char)) 
+        if (bytesWritten < sizeof(char))
         {
             LogStoreUnlock;
 
@@ -266,15 +266,15 @@ int LogStoreMakeID(LogStore store, LogStoreID *outID)
 
         store->indexFileGrowthCount++;
 
-        store->indexFileMapping = mmap(0, newSize, PROT_READ | PROT_WRITE, 
+        store->indexFileMapping = mmap(0, newSize, PROT_READ | PROT_WRITE,
                                        MAP_SHARED, store->indexFileNo, 0);
 
-        if (MAP_FAILED == store->indexFileMapping) 
+        if (MAP_FAILED == store->indexFileMapping)
         {
             store->indexFileMapping = NULL;
             store->indexFileMappingSize = 0;
-        } 
-        else 
+        }
+        else
         {
             store->indexFileMappingSize = newSize;
         }
@@ -287,21 +287,21 @@ int LogStoreMakeID(LogStore store, LogStoreID *outID)
 
 // Get the log-file offset given an index file entry.
 
-static inline off_t indexEntryGetOffset(IndexEntry e) 
+static inline off_t indexEntryGetOffset(IndexEntry e)
 {
     return e & 0x0000ffffffffffff;
 }
 
 // Get the revision of a given index file entry.
 
-static inline LogStoreRevision indexEntryGetRevision(IndexEntry e) 
+static inline LogStoreRevision indexEntryGetRevision(IndexEntry e)
 {
     return (e & 0xffff000000000000) >> 48;
 }
 
 // Make an index file entry (offset and revision).
 
-static inline IndexEntry indexEntryMake(off_t ofs, LogStoreRevision rev) 
+static inline IndexEntry indexEntryMake(off_t ofs, LogStoreRevision rev)
 {
     IndexEntry e = rev;
 
@@ -313,16 +313,16 @@ static inline IndexEntry indexEntryMake(off_t ofs, LogStoreRevision rev)
 
 // The index file starts with a count then continues with N entries.
 
-static inline off_t indexFileOffsetOf(LogStoreID id) 
+static inline off_t indexFileOffsetOf(LogStoreID id)
 {
     return sizeof(IndexFileCount) + (id * sizeof(IndexEntry));
 }
 
 // Read an entry from the index file using the mmap if available.
 
-static inline int indexFileRead(LogStore    store, 
-                                LogStoreID  id, 
-                                IndexEntry *outIndexEntry) 
+static inline int indexFileRead(LogStore    store,
+                                LogStoreID  id,
+                                IndexEntry *outIndexEntry)
 {
     if (id > store->indexFileCapacity)
     {
@@ -331,23 +331,22 @@ static inline int indexFileRead(LogStore    store,
 
     off_t offset = indexFileOffsetOf(id);
 
-    if (store->indexFileMapping && store->indexFileMappingSize) 
+    if (store->indexFileMapping && store->indexFileMappingSize)
     {
-        *outIndexEntry = *(IndexEntry *)((char *)store->indexFileMapping + 
-                                         offset);
-    } 
-    else 
+        *outIndexEntry = *(IndexEntry *)((char *)store->indexFileMapping + offset);
+    }
+    else
     {
         int bytesRead = 0;
 
-        do 
+        do
         {
-            bytesRead = pread(store->indexFileNo, outIndexEntry, 
-                           sizeof(IndexEntry), offset);
+            bytesRead = pread(store->indexFileNo, outIndexEntry,
+                              sizeof(IndexEntry), offset);
         }
         while (bytesRead == -1 && errno == EINTR);
 
-        if (bytesRead < sizeof(IndexEntry)) 
+        if (bytesRead < sizeof(IndexEntry))
         {
             return kLogStoreInputOutputError;
         }
@@ -358,10 +357,10 @@ static inline int indexFileRead(LogStore    store,
 
 // Write an entry to the index file using the mmap if available.
 
-static inline int indexFileWrite(LogStore         store, 
-                                 LogStoreID       id, 
-                                 off_t            newEntryOffset, 
-                                 LogStoreRevision newEntryRevision) 
+static inline int indexFileWrite(LogStore         store,
+                                 LogStoreID       id,
+                                 off_t            newEntryOffset,
+                                 LogStoreRevision newEntryRevision)
 {
     if (id >= store->indexFileCapacity)
     {
@@ -372,22 +371,22 @@ static inline int indexFileWrite(LogStore         store,
 
     off_t offset = indexFileOffsetOf(id);
 
-    if (store->indexFileMapping && store->indexFileMappingSize) 
+    if (store->indexFileMapping && store->indexFileMappingSize)
     {
         *(IndexEntry *)((char *)store->indexFileMapping + offset) = entry;
-    } 
-    else 
+    }
+    else
     {
         int bytesWritten = 0;
 
-        do 
+        do
         {
-            bytesWritten = pwrite(store->indexFileNo, &entry, 
+            bytesWritten = pwrite(store->indexFileNo, &entry,
                                   sizeof(IndexEntry), offset);
         }
         while (bytesWritten == -1 && errno == EINTR);
 
-        if (bytesWritten < sizeof(IndexEntry)) 
+        if (bytesWritten < sizeof(IndexEntry))
         {
             return kLogStoreInputOutputError;
         }
@@ -396,13 +395,13 @@ static inline int indexFileWrite(LogStore         store,
     return kLogStoreOK;
 }
 
-int LogStorePut(LogStore          store, 
-                LogStoreID        id, 
-                void             *data, 
-                size_t            size, 
-                LogStoreRevision  rev) 
+int LogStorePut(LogStore          store,
+                LogStoreID        id,
+                void             *data,
+                size_t            size,
+                LogStoreRevision  rev)
 {
-    if (NULL == store || NULL == data || 0 == size) 
+    if (NULL == store || NULL == data || 0 == size)
     {
         return kLogStoreInvalidParameter;
     }
@@ -413,7 +412,7 @@ int LogStorePut(LogStore          store,
 
     IndexEntry e = 0;
 
-    if (indexFileRead(store, id, &e)) 
+    if (indexFileRead(store, id, &e))
     {
         LogStoreUnlock;
 
@@ -422,7 +421,7 @@ int LogStorePut(LogStore          store,
 
     // Check for a version conflict.
 
-    if (indexEntryGetRevision(e) != rev) 
+    if (indexEntryGetRevision(e) != rev)
     {
         LogStoreUnlock;
 
@@ -433,7 +432,7 @@ int LogStorePut(LogStore          store,
 
     LogFileEntryHeader header = { id, size };
 
-    struct iovec iov[2] = 
+    struct iovec iov[2] =
     {
         { header, sizeof(header) },
         { data, size }
@@ -441,13 +440,13 @@ int LogStorePut(LogStore          store,
 
     int bytesWritten = 0;
 
-    do 
+    do
     {
         bytesWritten = writev(store->logFileNo, iov, 2);
     }
     while (bytesWritten == -1 && errno == EINTR);
 
-    if (bytesWritten < sizeof(header) + size) 
+    if (bytesWritten < sizeof(header) + size)
     {
         LogStoreUnlock;
 
@@ -460,7 +459,7 @@ int LogStorePut(LogStore          store,
 
     int result = indexFileWrite(store, id, store->logFileSize, rev + 1);
 
-    if (kLogStoreOK != result) 
+    if (kLogStoreOK != result)
     {
         LogStoreUnlock;
 
@@ -474,13 +473,13 @@ int LogStorePut(LogStore          store,
     return kLogStoreOK;
 }
 
-int LogStoreGet(LogStore          store, 
-                LogStoreID        id, 
-                void            **outData, 
-                size_t           *outSize, 
-                LogStoreRevision *outRev) 
+int LogStoreGet(LogStore          store,
+                LogStoreID        id,
+                void            **outData,
+                size_t           *outSize,
+                LogStoreRevision *outRev)
 {
-    if (NULL == store || NULL == outData || NULL != *outData) 
+    if (NULL == store || NULL == outData || NULL != *outData)
     {
         return kLogStoreInvalidParameter;
     }
@@ -493,7 +492,7 @@ int LogStoreGet(LogStore          store,
 
     int result = indexFileRead(store, id, &entry);
 
-    if (kLogStoreOK != result) 
+    if (kLogStoreOK != result)
     {
         LogStoreUnlock;
 
@@ -518,13 +517,13 @@ int LogStoreGet(LogStore          store,
 
     int bytesRead = 0;
 
-    do 
+    do
     {
         bytesRead = pread(store->logFileNo, header, sizeof(header), entryOffset);
     }
     while (bytesRead == -1 && errno == EINTR);
 
-    if (bytesRead < sizeof(header)) 
+    if (bytesRead < sizeof(header))
     {
         LogStoreUnlock;
 
@@ -533,7 +532,7 @@ int LogStoreGet(LogStore          store,
 
     // Sanity check that the ID in the file is the ID expected.
 
-    if (header[0] != id || header[1] == 0) 
+    if (header[0] != id || header[1] == 0)
     {
         LogStoreUnlock;
 
@@ -544,7 +543,7 @@ int LogStoreGet(LogStore          store,
 
     *outData = malloc(header[1]);
 
-    if (NULL == *outData) 
+    if (NULL == *outData)
     {
         LogStoreUnlock;
 
@@ -555,14 +554,14 @@ int LogStoreGet(LogStore          store,
 
     bytesRead = 0;
 
-    do 
+    do
     {
-        bytesRead = pread(store->logFileNo, *outData, 
+        bytesRead = pread(store->logFileNo, *outData,
                           header[1], entryDataOffset);
     }
     while (bytesRead == -1 && errno == EINTR);
 
-    if (bytesRead < header[1]) 
+    if (bytesRead < header[1])
     {
         free(*outData);
 
@@ -571,12 +570,12 @@ int LogStoreGet(LogStore          store,
         return kLogStoreInputOutputError;
     }
 
-    if (outSize) 
+    if (outSize)
     {
         *outSize = header[1];
     }
 
-    if (outRev)  
+    if (outRev)
     {
         *outRev = entryRevision;
     }
@@ -586,9 +585,9 @@ int LogStoreGet(LogStore          store,
     return kLogStoreOK;
 }
 
-int LogStoreRemove(LogStore store, LogStoreID id) 
+int LogStoreRemove(LogStore store, LogStoreID id)
 {
-    if (!store) 
+    if (!store)
     {
         return kLogStoreInvalidParameter;
     }
@@ -600,7 +599,7 @@ int LogStoreRemove(LogStore store, LogStoreID id)
 
     int result = indexFileWrite(store, id, (off_t) -1, (LogStoreRevision) -1);
 
-    if (kLogStoreOK != result) 
+    if (kLogStoreOK != result)
     {
         LogStoreUnlock;
 
@@ -613,13 +612,13 @@ int LogStoreRemove(LogStore store, LogStoreID id)
 
     int bytesWritten = 0;
 
-    do 
+    do
     {
         bytesWritten = write(store->logFileNo, header, sizeof(header));
     }
     while (bytesWritten == -1 && errno == EINTR);
 
-    if (bytesWritten < sizeof(header)) 
+    if (bytesWritten < sizeof(header))
     {
         LogStoreUnlock;
 
@@ -631,9 +630,9 @@ int LogStoreRemove(LogStore store, LogStoreID id)
     return kLogStoreOK;
 }
 
-int LogStoreSync(LogStore store) 
+int LogStoreSync(LogStore store)
 {
-    if (!store) 
+    if (!store)
     {
         return kLogStoreInvalidParameter;
     }
@@ -642,11 +641,11 @@ int LogStoreSync(LogStore store)
 
     fsync(store->logFileNo);
 
-    if (store->indexFileMapping && store->indexFileMappingSize) 
+    if (store->indexFileMapping && store->indexFileMappingSize)
     {
         msync(store->indexFileMapping, store->indexFileMappingSize, MS_SYNC);
     }
-    else 
+    else
     {
         fsync(store->indexFileNo);
     }
@@ -656,9 +655,9 @@ int LogStoreSync(LogStore store)
     return kLogStoreOK;
 }
 
-int LogStoreClose(LogStore *sp) 
+int LogStoreClose(LogStore *sp)
 {
-    if (NULL == sp || NULL == *sp) 
+    if (NULL == sp || NULL == *sp)
     {
         return kLogStoreInvalidParameter;
     }
@@ -667,7 +666,7 @@ int LogStoreClose(LogStore *sp)
 
     LogStoreLock;
 
-    if (store->indexFileMapping && store->indexFileMappingSize) 
+    if (store->indexFileMapping && store->indexFileMappingSize)
     {
         munmap(store->indexFileMapping, store->indexFileMappingSize);
     }
@@ -682,9 +681,9 @@ int LogStoreClose(LogStore *sp)
     return kLogStoreOK;
 }
 
-char *LogStoreDescribe(int code) 
+char *LogStoreDescribe(int code)
 {
-    switch (code) 
+    switch (code)
     {
         case kLogStoreOK:               return "success";
         case kLogStoreInputOutputError: return "input/output error";
