@@ -11,8 +11,8 @@
 #include <sys/uio.h>
 #include <unistd.h>
 
-#include "store.h"
-#include "store_private.h"
+#include "logstore.h"
+#include "logstore_private.h"
 
 #ifdef O_NOATIME
     #define OTHER_OPEN_FLAGS O_NOATIME
@@ -32,16 +32,16 @@
 
 #define IFILE_GROW_BY   10000
 
-// A store is a log file and an index file (<path>-index)
+// A logstore is a log file and an index file (<path>-index)
 
-store_rc store_open(store *sp, const char *path) {
+logstore_rc logstore_open(logstore *sp, const char *path) {
     if (!sp || *sp || !path) 
-        return STORE_EINVAL;
+        return LOGSTORE_EINVAL;
 
-    store s = calloc(sizeof(struct store), 1);
+    logstore s = calloc(sizeof(struct logstore), 1);
     if (!s) {
         perror("calloc");
-        return STORE_ENOMEM;
+        return LOGSTORE_ENOMEM;
     }
 
     // Open log file.
@@ -49,7 +49,7 @@ store_rc store_open(store *sp, const char *path) {
     if (-1 == (s->lfd = open(path, O_CREAT|O_APPEND|O_RDWR|OTHER_OPEN_FLAGS, 0777))) {
         perror("open log file");
         free(s);
-        return STORE_EIO;
+        return LOGSTORE_EIO;
     }
 
     // Get size of log file.
@@ -59,14 +59,14 @@ store_rc store_open(store *sp, const char *path) {
         perror("open log file");
         close(s->lfd);
         free(s);
-        return STORE_EIO;
+        return LOGSTORE_EIO;
     }
     s->lsz = st.st_size;
 
     // Open index file.
 
     char *ipath = malloc(strlen(path) + strlen("-index") + 1);
-    if (!ipath) return STORE_ENOMEM;
+    if (!ipath) return LOGSTORE_ENOMEM;
     sprintf(ipath, "%s-index", path);
     s->ifd = open(ipath, O_CREAT|O_RDWR|OTHER_OPEN_FLAGS, 0777);
     free(ipath);
@@ -74,7 +74,7 @@ store_rc store_open(store *sp, const char *path) {
         perror("open index file");
         close(s->lfd);
         free(s);
-        return STORE_EIO;
+        return LOGSTORE_EIO;
     }
 
     // Determine the capacity of the index file.
@@ -85,7 +85,7 @@ store_rc store_open(store *sp, const char *path) {
         close(s->ifd);
         close(s->lfd);
         free(s);
-        return STORE_EIO;
+        return LOGSTORE_EIO;
     }
 
     s->icap = ist.st_size / IENTRY_SZ;
@@ -108,14 +108,14 @@ store_rc store_open(store *sp, const char *path) {
             close(s->ifd);
             close(s->lfd);
             free(s);
-            return STORE_EIO;
+            return LOGSTORE_EIO;
         }
 
         s->icap = IFILE_GROW_BY;
         s->igrowths++;
     }
 
-    // Get number of entries in the store from the beginning of the index file.
+    // Get number of entries in the logstore from the beginning of the index file.
 
     s->icount = 0;
 
@@ -128,7 +128,7 @@ store_rc store_open(store *sp, const char *path) {
         close(s->lfd);
         close(s->ifd);
         free(s);
-        return STORE_EIO;
+        return LOGSTORE_EIO;
     }
 
     // Try to mmap the index file; falls back to regular file i/o on failure.
@@ -146,12 +146,12 @@ store_rc store_open(store *sp, const char *path) {
 
     *sp = s;
 
-    return STORE_OK;
+    return LOGSTORE_OK;
 }
 
-store_rc store_genid(store s, store_id *out_id) {
+logstore_rc logstore_genid(logstore s, logstore_id *out_id) {
     if (!s || !out_id) 
-        return STORE_EINVAL;
+        return LOGSTORE_EINVAL;
 
     pthread_mutex_lock(&s->mutex);
 
@@ -170,7 +170,7 @@ store_rc store_genid(store s, store_id *out_id) {
         if (rc < sizeof(uint32_t)) {
             perror("write next id");
             pthread_mutex_unlock(&s->mutex);
-            return STORE_EIO;
+            return LOGSTORE_EIO;
         }
     }
 
@@ -193,7 +193,7 @@ store_rc store_genid(store s, store_id *out_id) {
         if (rc < sizeof(char)) {
             perror("grow index file");
             pthread_mutex_unlock(&s->mutex);
-            return STORE_EIO;
+            return LOGSTORE_EIO;
         }
 
         s->igrowths++;
@@ -209,12 +209,12 @@ store_rc store_genid(store s, store_id *out_id) {
     }
     
     pthread_mutex_unlock(&s->mutex);
-    return STORE_OK;
+    return LOGSTORE_OK;
 }
 
 // index entries are 64-bit numbers with high 16 bits for revision, low 48 bits for log offset.
 // max revisions: ~65K; max log file size: ~260GiB
-// an index file is a sparse file wherein the entry for id X is stored at byte offset X*8.
+// an index file is a sparse file wherein the entry for id X is logstored at byte offset X*8.
 
 // Get the log-file offset given an index file entry.
 
@@ -245,9 +245,9 @@ static inline off_t ifile_ofs(uint64_t id) {
 
 // Read an entry from the index file using the mmap if available.
 
-static inline int ifile_read(store s, uint64_t id, uint64_t *out_ientry) {
+static inline int ifile_read(logstore s, uint64_t id, uint64_t *out_ientry) {
     if (id > s->icap)
-        return STORE_EINVAL;
+        return LOGSTORE_EINVAL;
 
     off_t iofs = ifile_ofs(id);
 
@@ -260,18 +260,18 @@ static inline int ifile_read(store s, uint64_t id, uint64_t *out_ientry) {
         
         if (rc < IENTRY_SZ) {
             perror("read index entry");
-            return STORE_EIO;
+            return LOGSTORE_EIO;
         }
     }
 
-    return STORE_OK;
+    return LOGSTORE_OK;
 }
 
 // Write an entry to the index file using the mmap if available.
 
-static inline int ifile_write(store s, uint64_t id, uint64_t ofs, uint16_t rev) {
+static inline int ifile_write(logstore s, uint64_t id, uint64_t ofs, uint16_t rev) {
     if (id > s->icap)
-        return STORE_EINVAL;
+        return LOGSTORE_EINVAL;
 
     uint64_t ientry = ientry_make(ofs, rev);
     off_t iofs = ifile_ofs(id);
@@ -285,16 +285,16 @@ static inline int ifile_write(store s, uint64_t id, uint64_t ofs, uint16_t rev) 
         
         if (rc < IENTRY_SZ) {
             perror("updated index entry");
-            return STORE_EIO;
+            return LOGSTORE_EIO;
         }
     }
 
-    return STORE_OK;
+    return LOGSTORE_OK;
 }
 
-store_rc store_put(store s, store_id id, void *data, size_t sz, store_revision rev) {
+logstore_rc logstore_put(logstore s, logstore_id id, void *data, size_t sz, logstore_revision rev) {
     if (!s || !data || 0 == sz) 
-        return STORE_EINVAL;
+        return LOGSTORE_EINVAL;
 
     pthread_mutex_lock(&s->mutex);
 
@@ -303,14 +303,14 @@ store_rc store_put(store s, store_id id, void *data, size_t sz, store_revision r
     uint64_t ientry = 0;
     if (ifile_read(s, id, &ientry)) {
         pthread_mutex_unlock(&s->mutex);
-        return STORE_EIO;
+        return LOGSTORE_EIO;
     }
 
     // Check for a version conflict.
 
     if (ientry_rev(ientry) != rev) {
         pthread_mutex_unlock(&s->mutex);
-        return STORE_ECONFLICT;
+        return LOGSTORE_ECONFLICT;
     }
 
     // Append record descriptor and record to log file.
@@ -329,13 +329,13 @@ store_rc store_put(store s, store_id id, void *data, size_t sz, store_revision r
     if (rc < sizeof(desc) + sz) {
         perror("append to log");
         pthread_mutex_unlock(&s->mutex);
-        return STORE_EIO;
+        return LOGSTORE_EIO;
     }
 
     // Update index file entry.
 
     rc = ifile_write(s, id, s->lsz, rev + 1);
-    if (STORE_OK != rc) {
+    if (LOGSTORE_OK != rc) {
         pthread_mutex_unlock(&s->mutex);
         return rc;
     }
@@ -343,14 +343,14 @@ store_rc store_put(store s, store_id id, void *data, size_t sz, store_revision r
     s->lsz += sizeof(desc) + sz;
 
     pthread_mutex_unlock(&s->mutex);
-    return STORE_OK;
+    return LOGSTORE_OK;
 }
 
-store_rc store_get(store s, store_id id, void **out_data, 
-                   size_t *out_sz, store_revision *out_rev) {
+logstore_rc logstore_get(logstore s, logstore_id id, void **out_data, 
+                   size_t *out_sz, logstore_revision *out_rev) {
 
     if (!s || !out_data || *out_data) 
-        return STORE_EINVAL;
+        return LOGSTORE_EINVAL;
 
     pthread_mutex_lock(&s->mutex);
 
@@ -358,14 +358,14 @@ store_rc store_get(store s, store_id id, void **out_data,
 
     uint64_t ientry;
     int rc = ifile_read(s, id, &ientry);
-    if (STORE_OK != rc) {
+    if (LOGSTORE_OK != rc) {
         pthread_mutex_unlock(&s->mutex);
         return rc;
     }
     
     if (ientry == (uint64_t) -1) {
         pthread_mutex_unlock(&s->mutex);
-        return STORE_ENOENT;
+        return LOGSTORE_ENOENT;
     }
 
     // Read the record descriptor from the log.
@@ -377,21 +377,21 @@ store_rc store_get(store s, store_id id, void **out_data,
     if (rc < sizeof(desc)) {
         perror("read record descriptor");
         pthread_mutex_unlock(&s->mutex);
-        return STORE_EIO;
+        return LOGSTORE_EIO;
     }
 
     // Deleted? Never put? Then, id and size will be 0.
 
     if (0 == desc[0] && 0 == desc[1]) {
         pthread_mutex_unlock(&s->mutex);
-        return STORE_ENOENT;
+        return LOGSTORE_ENOENT;
     }
 
     // Sanity check that the ID in the file is the ID expected.
 
     if (desc[0] != id) {
         pthread_mutex_unlock(&s->mutex);
-        return STORE_ETAMPER;
+        return LOGSTORE_ETAMPER;
     }
 
     // Read the log record into user data.
@@ -399,7 +399,7 @@ store_rc store_get(store s, store_id id, void **out_data,
     if (!(*out_data = malloc(desc[1]))) {
         perror("malloc for log record data");
         pthread_mutex_unlock(&s->mutex);
-        return STORE_ENOMEM;
+        return LOGSTORE_ENOMEM;
     }
 
     do rc = pread(s->lfd, *out_data, desc[1], ientry_ofs(ientry) + sizeof(desc));
@@ -409,18 +409,18 @@ store_rc store_get(store s, store_id id, void **out_data,
         perror("read log record");
         free(*out_data);
         pthread_mutex_unlock(&s->mutex);
-        return STORE_EIO;
+        return LOGSTORE_EIO;
     }
 
     if (out_sz)  *out_sz  = desc[1];
     if (out_rev) *out_rev = ientry_rev(ientry);
 
     pthread_mutex_unlock(&s->mutex);
-    return STORE_OK;
+    return LOGSTORE_OK;
 }
 
-store_rc store_rm(store s, store_id id) {
-    if (!s) return STORE_EINVAL;
+logstore_rc logstore_rm(logstore s, logstore_id id) {
+    if (!s) return LOGSTORE_EINVAL;
 
     pthread_mutex_lock(&s->mutex);
 
@@ -428,7 +428,7 @@ store_rc store_rm(store s, store_id id) {
     // Note: we do _not_ free up the ID for reuse.
 
     int rc = ifile_write(s, id, (uint64_t) -1, (uint16_t) -1);
-    if (STORE_OK != rc) {
+    if (LOGSTORE_OK != rc) {
         pthread_mutex_unlock(&s->mutex);
         return rc;
     }
@@ -442,15 +442,15 @@ store_rc store_rm(store s, store_id id) {
     if (rc < sizeof(desc)) {
         perror("append delete record");
         pthread_mutex_unlock(&s->mutex);
-        return STORE_EIO;
+        return LOGSTORE_EIO;
     }
 
     pthread_mutex_unlock(&s->mutex);
-    return STORE_OK;
+    return LOGSTORE_OK;
 }
 
-store_rc store_sync(store s) {
-    if (!s) return STORE_EINVAL;
+logstore_rc logstore_sync(logstore s) {
+    if (!s) return LOGSTORE_EINVAL;
 
     pthread_mutex_lock(&s->mutex);
 
@@ -460,14 +460,14 @@ store_rc store_sync(store s) {
     else fsync(s->ifd);
 
     pthread_mutex_unlock(&s->mutex);
-    return STORE_OK;
+    return LOGSTORE_OK;
 }
 
-store_rc store_close(store *sp) {
+logstore_rc logstore_close(logstore *sp) {
     if (!sp || !*sp) 
-        return STORE_EINVAL;
+        return LOGSTORE_EINVAL;
 
-    store s = *sp;
+    logstore s = *sp;
 
     pthread_mutex_lock(&s->mutex);
 
@@ -480,18 +480,18 @@ store_rc store_close(store *sp) {
     pthread_mutex_unlock(&s->mutex);
     pthread_mutex_destroy(&s->mutex);
 
-    return STORE_OK;
+    return LOGSTORE_OK;
 }
 
-char *store_strerror(store_rc code) {
+char *logstore_strerror(logstore_rc code) {
     switch (code) {
-        case STORE_OK:           return "success";
-        case STORE_EIO:          return "input/output error";
-        case STORE_ENOMEM:       return "out of memory";
-        case STORE_EINVAL:       return "bad argument(s)";
-        case STORE_ENOENT:       return "no such entity";
-        case STORE_ETAMPER:      return "data was tampered with";
-        case STORE_ECONFLICT:    return "revision conflict";
+        case LOGSTORE_OK:           return "success";
+        case LOGSTORE_EIO:          return "input/output error";
+        case LOGSTORE_ENOMEM:       return "out of memory";
+        case LOGSTORE_EINVAL:       return "bad argument(s)";
+        case LOGSTORE_ENOENT:       return "no such entity";
+        case LOGSTORE_ETAMPER:      return "data was tampered with";
+        case LOGSTORE_ECONFLICT:    return "revision conflict";
     }
     
     return NULL;

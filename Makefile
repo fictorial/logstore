@@ -1,34 +1,34 @@
 CFLAGS=-std=c99 -O2 -Wall -Werror -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64
-LDFLAGS=-L. -lstore -pthread
+LDFLAGS=-L. -llogstore -pthread
 
 all: lib 
 
-lib: libstore.a
+lib: liblogstore.a
 
-libstore.a: store.o
-	ar rcs libstore.a store.o
-	ranlib libstore.a
+liblogstore.a: logstore.o
+	ar rcs liblogstore.a logstore.o
+	ranlib liblogstore.a
 
-store.o: store.c store.h store_private.h
-	gcc -c $(CFLAGS) store.c 
+logstore.o: logstore.c logstore.h logstore_private.h
+	gcc -c $(CFLAGS) logstore.c 
 
-test_store: test_store.c libstore.a
-	gcc $(CFLAGS) test_store.c -o test_store $(LDFLAGS) 
+test_logstore: test_logstore.c liblogstore.a
+	gcc $(CFLAGS) test_logstore.c -o test_logstore $(LDFLAGS) 
 
-check: test_store
-	./test_store
+check: test_logstore
+	./test_logstore
 
 test: check
 
-bench_store: bench_store.c libstore.a
-	gcc $(CFLAGS) bench_store.c -o bench_store $(LDFLAGS) 
+bench_logstore: bench_logstore.c liblogstore.a
+	gcc $(CFLAGS) bench_logstore.c -o bench_logstore $(LDFLAGS) 
 
-bench: bench_store
-	./bench_store
+bench: bench_logstore
+	./bench_logstore
 
 benchmark: bench
 
 clean:
-	rm -rf test_store libstore.a store.o log log-index bench_store *.dSYM
+	rm -rf test_logstore liblogstore.a logstore.o log log-index bench_logstore *.dSYM
 
 .PHONY: all lib test clean check bench benchmark

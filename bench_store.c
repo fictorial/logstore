@@ -7,8 +7,8 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "store_private.h"
-#include "store.h"
+#include "logstore_private.h"
+#include "logstore.h"
 
 #define TIME_DELTA_MICRO(start, end) \
   (((double)end.tv_sec   * 1000000.0 + (double)end.tv_usec) \
@@ -21,56 +21,56 @@
 uint64_t first_put_int_id = 0;
 
 void benchmark_puts_no_sync_int_value() {
-    store s = NULL;
-    assert(STORE_OK == store_open(&s, "log"));
+    logstore s = NULL;
+    assert(LOGSTORE_OK == logstore_open(&s, "log"));
     struct timeval start, end; 
     gettimeofday(&start, NULL);
     for (int i=0; i<PUT_COUNT; ++i) {
-        store_id id;
-        assert(STORE_OK == store_genid(s, &id));
-        assert(STORE_OK == store_put(s, id, &i, sizeof(int), 0));
+        logstore_id id;
+        assert(LOGSTORE_OK == logstore_genid(s, &id));
+        assert(LOGSTORE_OK == logstore_put(s, id, &i, sizeof(int), 0));
         if (i == 0) first_put_int_id = id;
     }
     gettimeofday(&end, NULL);
     double puts_per_second = PUT_COUNT / TIME_DELTA_SECONDS(start, end);
     printf("%s: %u puts / second\n", __FUNCTION__, (unsigned)puts_per_second);
     printf("%s: %d index file growths performed\n", __FUNCTION__, s->igrowths);
-    assert(STORE_OK == store_close(&s));
+    assert(LOGSTORE_OK == logstore_close(&s));
 }
 
 void benchmark_puts_sync_every_put_int_value() {
     printf("%s: this might take a while...\n", __FUNCTION__);
-    store s = NULL;
-    assert(STORE_OK == store_open(&s, "log"));
+    logstore s = NULL;
+    assert(LOGSTORE_OK == logstore_open(&s, "log"));
     struct timeval start, end; 
     gettimeofday(&start, NULL);
     for (int i=0; i<PUT_COUNT; ++i) {
-        store_id id;
-        assert(STORE_OK == store_genid(s, &id));
-        assert(STORE_OK == store_put(s, id, &i, sizeof(int), 0));
-        assert(STORE_OK == store_sync(s));
+        logstore_id id;
+        assert(LOGSTORE_OK == logstore_genid(s, &id));
+        assert(LOGSTORE_OK == logstore_put(s, id, &i, sizeof(int), 0));
+        assert(LOGSTORE_OK == logstore_sync(s));
     }
     gettimeofday(&end, NULL);
     double puts_per_second = PUT_COUNT / TIME_DELTA_SECONDS(start, end);
     printf("%s: %u puts / second\n", __FUNCTION__, (unsigned)puts_per_second);
     printf("%s: %d index file growths performed\n", __FUNCTION__, s->igrowths);
-    assert(STORE_OK == store_close(&s));
+    assert(LOGSTORE_OK == logstore_close(&s));
 }
 
 void benchmark_puts_sync_once_per_second_int_value() {
-    store s = NULL;
-    assert(STORE_OK == store_open(&s, "log"));
+    logstore s = NULL;
+    assert(LOGSTORE_OK == logstore_open(&s, "log"));
     struct timeval start, end, second_start, now;
     gettimeofday(&start, NULL);
     gettimeofday(&second_start, NULL);
     int sync_count = 0;
     for (int i=0; i<PUT_COUNT; ++i) {
-        store_id id;
-        assert(STORE_OK == store_genid(s, &id));
-        assert(STORE_OK == store_put(s, id, &i, sizeof(int), 0));
+        logstore_id id;
+        assert(LOGSTORE_OK == logstore_genid(s, &id));
+        assert(LOGSTORE_OK == logstore_put(s, id, &i, sizeof(int), 0));
         gettimeofday(&now, NULL);
         if (TIME_DELTA_SECONDS(second_start, now) >= 1) {
-            assert(STORE_OK == store_sync(s));
+            assert(LOGSTORE_OK == logstore_sync(s));
             gettimeofday(&second_start, NULL);
             sync_count++;
         }
@@ -80,21 +80,21 @@ void benchmark_puts_sync_once_per_second_int_value() {
     printf("%s: %u puts / second\n", __FUNCTION__, (unsigned)puts_per_second);
     printf("%s: %d syncs performed\n", __FUNCTION__, sync_count);
     printf("%s: %d index file growths performed\n", __FUNCTION__, s->igrowths);
-    assert(STORE_OK == store_close(&s));
+    assert(LOGSTORE_OK == logstore_close(&s));
 }
 
 uint64_t first_put_1KiB_id = 0;
 
 void benchmark_puts_no_sync_1KiB_value() {
-    store s = NULL;
-    assert(STORE_OK == store_open(&s, "log"));
+    logstore s = NULL;
+    assert(LOGSTORE_OK == logstore_open(&s, "log"));
     struct timeval start, end; 
     char *data = malloc(1024);
     gettimeofday(&start, NULL);
     for (int i=0; i<PUT_COUNT; ++i) {
-        store_id id;
-        assert(STORE_OK == store_genid(s, &id));
-        assert(STORE_OK == store_put(s, id, data, 1024, 0));
+        logstore_id id;
+        assert(LOGSTORE_OK == logstore_genid(s, &id));
+        assert(LOGSTORE_OK == logstore_put(s, id, data, 1024, 0));
         if (i == 0) first_put_1KiB_id = id;
     }
     gettimeofday(&end, NULL);
@@ -102,24 +102,24 @@ void benchmark_puts_no_sync_1KiB_value() {
     double puts_per_second = PUT_COUNT / TIME_DELTA_SECONDS(start, end);
     printf("%s: %u puts / second\n", __FUNCTION__, (unsigned)puts_per_second);
     printf("%s: %d index file growths performed\n", __FUNCTION__, s->igrowths);
-    assert(STORE_OK == store_close(&s));
+    assert(LOGSTORE_OK == logstore_close(&s));
 }
 
 void benchmark_puts_sync_once_per_second_1KiB_value() {
-    store s = NULL;
-    assert(STORE_OK == store_open(&s, "log"));
+    logstore s = NULL;
+    assert(LOGSTORE_OK == logstore_open(&s, "log"));
     struct timeval start, end, second_start, now;
     char *data = malloc(1024);
     gettimeofday(&start, NULL);
     gettimeofday(&second_start, NULL);
     int sync_count = 0;
     for (int i=0; i<PUT_COUNT; ++i) {
-        store_id id;
-        assert(STORE_OK == store_genid(s, &id));
-        assert(STORE_OK == store_put(s, id, data, 1024, 0));
+        logstore_id id;
+        assert(LOGSTORE_OK == logstore_genid(s, &id));
+        assert(LOGSTORE_OK == logstore_put(s, id, data, 1024, 0));
         gettimeofday(&now, NULL);
         if (TIME_DELTA_SECONDS(second_start, now) >= 1) {
-            assert(STORE_OK == store_sync(s));
+            assert(LOGSTORE_OK == logstore_sync(s));
             gettimeofday(&second_start, NULL);
             sync_count++;
         }
@@ -130,18 +130,18 @@ void benchmark_puts_sync_once_per_second_1KiB_value() {
     printf("%s: %u puts / second\n", __FUNCTION__, (unsigned)puts_per_second);
     printf("%s: %d syncs performed\n", __FUNCTION__, sync_count);
     printf("%s: %d index file growths performed\n", __FUNCTION__, s->igrowths);
-    assert(STORE_OK == store_close(&s));
+    assert(LOGSTORE_OK == logstore_close(&s));
 }
 
 void benchmark_sequential_gets_int_value() {
-    store s = NULL;
-    assert(STORE_OK == store_open(&s, "log"));
+    logstore s = NULL;
+    assert(LOGSTORE_OK == logstore_open(&s, "log"));
     struct timeval start, end; 
     gettimeofday(&start, NULL);
     for (int i=0; i<PUT_COUNT; ++i) {
         void *data = NULL;
         size_t sz = 0;
-        assert(STORE_OK == store_get(s, first_put_int_id + i, &data, &sz, NULL));
+        assert(LOGSTORE_OK == logstore_get(s, first_put_int_id + i, &data, &sz, NULL));
         assert(NULL != data);
         assert(sz == sizeof(int));
         assert(*(int *)data == i);
@@ -150,12 +150,12 @@ void benchmark_sequential_gets_int_value() {
     gettimeofday(&end, NULL);
     double gets_per_second = PUT_COUNT / TIME_DELTA_SECONDS(start, end);
     printf("%s: %u gets / second\n", __FUNCTION__, (unsigned)gets_per_second);
-    assert(STORE_OK == store_close(&s));
+    assert(LOGSTORE_OK == logstore_close(&s));
 }
 
 void benchmark_random_gets_int_value() {
-    store s = NULL;
-    assert(STORE_OK == store_open(&s, "log"));
+    logstore s = NULL;
+    assert(LOGSTORE_OK == logstore_open(&s, "log"));
     struct timeval start, end; 
     gettimeofday(&start, NULL);
     srand(time(NULL));
@@ -163,7 +163,7 @@ void benchmark_random_gets_int_value() {
         uint64_t random_id = (rand() / (double)RAND_MAX) * PUT_COUNT;
         void *data = NULL;
         size_t sz = 0;
-        assert(STORE_OK == store_get(s, first_put_int_id + random_id, &data, &sz, NULL));
+        assert(LOGSTORE_OK == logstore_get(s, first_put_int_id + random_id, &data, &sz, NULL));
         assert(NULL != data);
         assert(sz == sizeof(int));
         assert(*(int *)data == random_id);
@@ -172,18 +172,18 @@ void benchmark_random_gets_int_value() {
     gettimeofday(&end, NULL);
     double gets_per_second = PUT_COUNT / TIME_DELTA_SECONDS(start, end);
     printf("%s: %u gets / second\n", __FUNCTION__, (unsigned)gets_per_second);
-    assert(STORE_OK == store_close(&s));
+    assert(LOGSTORE_OK == logstore_close(&s));
 }
 
 void benchmark_sequential_gets_1KiB_value() {
-    store s = NULL;
-    assert(STORE_OK == store_open(&s, "log"));
+    logstore s = NULL;
+    assert(LOGSTORE_OK == logstore_open(&s, "log"));
     struct timeval start, end; 
     gettimeofday(&start, NULL);
     for (int i=0; i<PUT_COUNT; ++i) {
         void *data = NULL;
         size_t sz = 0;
-        assert(STORE_OK == store_get(s, first_put_1KiB_id + i, &data, &sz, NULL));
+        assert(LOGSTORE_OK == logstore_get(s, first_put_1KiB_id + i, &data, &sz, NULL));
         assert(NULL != data);
         assert(sz == 1024);
         free(data);
@@ -191,7 +191,7 @@ void benchmark_sequential_gets_1KiB_value() {
     gettimeofday(&end, NULL);
     double gets_per_second = PUT_COUNT / TIME_DELTA_SECONDS(start, end);
     printf("%s: %u gets / second\n", __FUNCTION__, (unsigned)gets_per_second);
-    assert(STORE_OK == store_close(&s));
+    assert(LOGSTORE_OK == logstore_close(&s));
 }
 
 // Random gets perform a read from the index file (hopefully memory-mapped) and
@@ -207,11 +207,11 @@ void benchmark_sequential_gets_1KiB_value() {
 // do things in the near future that would otherwise require the user object to
 // be fetched multiple times.  Hence, "temporal locality" is exploited by way
 // of caching the object.  Changes to the user object are "put" to the log
-// store as appropriate.
+// logstore as appropriate.
 
 void benchmark_random_gets_1KiB_value() {
-    store s = NULL;
-    assert(STORE_OK == store_open(&s, "log"));
+    logstore s = NULL;
+    assert(LOGSTORE_OK == logstore_open(&s, "log"));
     struct timeval start, end; 
     gettimeofday(&start, NULL);
     srand(time(NULL));
@@ -219,7 +219,7 @@ void benchmark_random_gets_1KiB_value() {
         uint64_t random_id = (rand() / (double)RAND_MAX) * 1000;
         void *data = NULL;
         size_t sz = 0;
-        assert(STORE_OK == store_get(s, first_put_1KiB_id + random_id, &data, &sz, NULL));
+        assert(LOGSTORE_OK == logstore_get(s, first_put_1KiB_id + random_id, &data, &sz, NULL));
         assert(NULL != data);
         assert(sz == 1024);
         free(data);
@@ -227,7 +227,7 @@ void benchmark_random_gets_1KiB_value() {
     gettimeofday(&end, NULL);
     double gets_per_second = 1000 / TIME_DELTA_SECONDS(start, end);
     printf("%s: %u gets / second\n", __FUNCTION__, (unsigned)gets_per_second);
-    assert(STORE_OK == store_close(&s));
+    assert(LOGSTORE_OK == logstore_close(&s));
 }
 
 int main(int argc, char **argv) {
