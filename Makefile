@@ -28,7 +28,11 @@ bench: bench_logstore
 
 benchmark: bench
 
+install: liblogstore.a
+	install liblogstore.a /usr/local/lib 
+	install logstore.h /usr/local/include 
+
 clean:
 	rm -rf test_logstore liblogstore.a logstore.o log log-index bench_logstore *.dSYM
 
-.PHONY: all lib test clean check bench benchmark
+.PHONY: all lib test clean check bench benchmark install
