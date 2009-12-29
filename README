@@ -26,4 +26,7 @@
 
   The API should be straightforward; see logstore.h
 
-Brian Hammond, Fictorial
+Copyright (C) 2009 Fictorial LLC
+Author: Brian Hammond
+License: MIT
+Warranty: None
