@@ -1,0 +1,5 @@
+- log garbage collection 
+- leave it up to the client to invoke collection 
+- python extension
+- node.js add-on
+- transparent & optional compression/decompression
