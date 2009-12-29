@@ -9,8 +9,5 @@ logstore
 - entries assigned id numbers by system
 - extensions for Python, Node.js forthcoming
 - basis for embedded object database, datastore server, etc.
-- on a MacBook Pro with zero tuning: 
-  - 250K 4-byte-value puts/sec. with fsync 1x/sec.
-  - 250K 4-byte-value random gets/sec. 
-  - 50K 1KiB-value puts/sec. with fsync 1x/sec.; 
-  - 5K 1KiB-value random gets/sec.
+
+Brian Hammond, Fictorial
