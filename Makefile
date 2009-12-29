@@ -1,4 +1,4 @@
-CFLAGS=-std=c99 -O2 -Wall -Werror -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64
+CFLAGS=-g -O0 -std=c99 -Wall -Werror -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64
 LDFLAGS=-L. -llogstore -pthread
 
 all: lib 

@@ -15,484 +15,685 @@
 #include "logstore_private.h"
 
 #ifdef O_NOATIME
-    #define OTHER_OPEN_FLAGS O_NOATIME
+#define kOtherOpenFlags O_NOATIME
 #else
-    #define OTHER_OPEN_FLAGS 0
+#define kOtherOpenFlags 0
 #endif
 
-// Index file entries are 64-bit integers.
-
-#define IENTRY_SZ       8
-
 // This index file growth factor is arbitrary.  The idea is that the index file
-// is often going to be memory-mapped for performance reasons, but
+// is often going to be memory-mapped for perforemoveance reasons, but
 // memory-mapped files cannot grow through a memory-map.  Thus, we treat the
 // index file as a sparse file and grow it by seeking+writing beyond the EOF by
 // a certain amount and remapping the file.
 
-#define IFILE_GROW_BY   10000
+#define kIndexFileGrowBy (4096/8 * 1000)
 
-// A logstore is a log file and an index file (<path>-index)
+#define LogStoreLock   pthread_mutex_lock(&store->mutex)
+#define LogStoreUnlock pthread_mutex_unlock(&store->mutex);
 
-logstore_rc logstore_open(logstore *sp, const char *path) {
-    if (!sp || *sp || !path) 
-        return LOGSTORE_EINVAL;
+typedef uint32_t IndexFileCount;
 
-    logstore s = calloc(sizeof(struct logstore), 1);
-    if (!s) {
-        perror("calloc");
-        return LOGSTORE_ENOMEM;
+typedef uint32_t LogFileEntryHeader[2];            // id, size
+
+// Index file entries are 64-bit numbers with high 16 bits for revision, low 48
+// bits for log offset.  max revisions: ~65K; max log file size: ~260GiB.  an
+// index file is a sparse file wherein the entry for id X is LogStored at byte
+// offset X*8.
+
+typedef uint64_t IndexEntry;                       // [rev|offset]
+
+// A LogStore is a log file and an index file (<path>-index)
+
+int LogStoreOpen(LogStore *sp, const char *path) 
+{
+    if (NULL == sp || NULL != *sp || NULL == path) 
+    {
+        return kLogStoreInvalidParameter;
+    }
+
+    LogStore store = calloc(sizeof(struct LogStore), 1);
+
+    if (!store) 
+    {
+        return kLogStoreOutOfMemory;
     }
 
     // Open log file.
 
-    if (-1 == (s->lfd = open(path, O_CREAT|O_APPEND|O_RDWR|OTHER_OPEN_FLAGS, 0777))) {
-        perror("open log file");
-        free(s);
-        return LOGSTORE_EIO;
+    int flags = O_CREAT | O_APPEND | O_RDWR | kOtherOpenFlags;
+
+    if (-1 == (store->logFileNo = open(path, flags, 0777))) 
+    {
+        free(store);
+
+        return kLogStoreInputOutputError;
     }
 
     // Get size of log file.
 
-    struct stat st;
-    if (fstat(s->lfd, &st) < 0 || !S_ISREG(st.st_mode)) {
-        perror("open log file");
-        close(s->lfd);
-        free(s);
-        return LOGSTORE_EIO;
+    struct stat logFileStat;
+
+    if (fstat(store->logFileNo, &logFileStat) < 0 || 
+        !S_ISREG(logFileStat.st_mode)) 
+    {
+        close(store->logFileNo);
+        free(store);
+
+        return kLogStoreInputOutputError;
     }
-    s->lsz = st.st_size;
+
+    store->logFileSize = logFileStat.st_size;
 
     // Open index file.
 
     char *ipath = malloc(strlen(path) + strlen("-index") + 1);
-    if (!ipath) return LOGSTORE_ENOMEM;
+
+    if (NULL == ipath) 
+    {
+        return kLogStoreOutOfMemory;
+    }
+
     sprintf(ipath, "%s-index", path);
-    s->ifd = open(ipath, O_CREAT|O_RDWR|OTHER_OPEN_FLAGS, 0777);
+
+    store->indexFileNo = open(ipath, O_CREAT | O_RDWR | kOtherOpenFlags, 0777);
+
     free(ipath);
-    if (-1 == s->ifd) {
-        perror("open index file");
-        close(s->lfd);
-        free(s);
-        return LOGSTORE_EIO;
+
+    if (-1 == store->indexFileNo) 
+    {
+        close(store->logFileNo);
+        free(store);
+
+        return kLogStoreInputOutputError;
     }
 
-    // Determine the capacity of the index file.
+    // Deteremoveine the capacity of the index file.
 
-    struct stat ist;
-    if (fstat(s->ifd, &ist) < 0) {
-        perror("index file fstat");
-        close(s->ifd);
-        close(s->lfd);
-        free(s);
-        return LOGSTORE_EIO;
+    struct stat indexFileStat;
+
+    if (-1 == fstat(store->indexFileNo, &indexFileStat)) 
+    {
+        close(store->indexFileNo);
+        close(store->logFileNo);
+        free(store);
+
+        return kLogStoreInputOutputError;
     }
 
-    s->icap = ist.st_size / IENTRY_SZ;
+    store->indexFileCapacity = indexFileStat.st_size / sizeof(IndexEntry);
 
     // If needed, grow the (sparse) index file to hold a decent number of
     // entries for mmap.
 
-    s->igrowths = 0;
+    store->indexFileGrowthCount = 0;
 
-    if (s->icap == 0) {
+    if (store->indexFileCapacity == 0) 
+    {
         char zero = 0;
-        off_t ofs = IFILE_GROW_BY*IENTRY_SZ - sizeof(char);
+        off_t newEOF = kIndexFileGrowBy * sizeof(IndexEntry) - sizeof(char);
 
-        int rc;
-        do rc = pwrite(s->ifd, &zero, sizeof(char), ofs);
-        while (rc == -1 && errno == EINTR);
-        
-        if (rc < sizeof(char)) {
-            perror("index file growth");
-            close(s->ifd);
-            close(s->lfd);
-            free(s);
-            return LOGSTORE_EIO;
+        int bytesWritten = 0;
+
+        do 
+        {
+            bytesWritten = pwrite(store->indexFileNo, &zero, 
+                                  sizeof(char), newEOF);
+        }
+        while (bytesWritten == -1 && errno == EINTR);
+
+        if (bytesWritten < sizeof(char)) 
+        {
+            close(store->indexFileNo);
+            close(store->logFileNo);
+            free(store);
+
+            return kLogStoreInputOutputError;
         }
 
-        s->icap = IFILE_GROW_BY;
-        s->igrowths++;
+        store->indexFileCapacity = kIndexFileGrowBy;
+        store->indexFileGrowthCount++;
     }
 
-    // Get number of entries in the logstore from the beginning of the index file.
+    // Get number of entries in the LogStore from the beginning 
+    // of the index file.
 
-    s->icount = 0;
+    int bytesRead = 0;
 
-    int rc;
-    do rc = read(s->ifd, &s->icount, sizeof(uint32_t));
-    while (rc == -1 && errno == EINTR);
-    
-    if (rc < sizeof(uint32_t)) {
-        perror("read entry count");
-        close(s->lfd);
-        close(s->ifd);
-        free(s);
-        return LOGSTORE_EIO;
+    do 
+    {
+        bytesRead = read(store->indexFileNo, &store->indexFileCount, 
+                         sizeof(store->indexFileCount));
+    }
+    while (bytesRead == -1 && errno == EINTR);
+
+    if (bytesRead < sizeof(store->indexFileCount)) 
+    {
+        close(store->logFileNo);
+        close(store->indexFileNo);
+        free(store);
+
+        return kLogStoreInputOutputError;
     }
 
     // Try to mmap the index file; falls back to regular file i/o on failure.
 
-    s->imm_sz = s->icap * IENTRY_SZ;
-    s->imm = mmap(0, s->imm_sz, PROT_READ | PROT_WRITE, MAP_SHARED, s->ifd, 0);
+    store->indexFileMappingSize = store->indexFileCapacity * sizeof(IndexEntry);
 
-    if (MAP_FAILED == s->imm) {
-        perror("mmap index file");
-        s->imm = NULL;
-        s->imm_sz = 0;
+    store->indexFileMapping = mmap(0, store->indexFileMappingSize, 
+                                   PROT_READ | PROT_WRITE, 
+                                   MAP_SHARED, store->indexFileNo, 0);
+
+    if (MAP_FAILED == store->indexFileMapping) 
+    {
+        store->indexFileMapping = NULL;
+        store->indexFileMappingSize = 0;
     }
 
-    pthread_mutex_init(&s->mutex, NULL);
+    // Create a mutex.
 
-    *sp = s;
+    pthread_mutex_init(&store->mutex, NULL);
 
-    return LOGSTORE_OK;
+    *sp = store;
+
+    return kLogStoreOK;
 }
 
-logstore_rc logstore_genid(logstore s, logstore_id *out_id) {
-    if (!s || !out_id) 
-        return LOGSTORE_EINVAL;
+int LogStoreMakeID(LogStore store, LogStoreID *outID) 
+{
+    if (NULL == store || NULL == outID) 
+    {
+        return kLogStoreInvalidParameter;
+    }
 
-    pthread_mutex_lock(&s->mutex);
+    LogStoreLock;
 
-    *out_id = s->icount++;
+    *outID = store->indexFileCount++;
 
     // Save the number of used index entries in the index file (at offset 0).
 
-    if (s->imm && s->imm_sz) {
-        *(uint64_t *)s->imm = s->icount;
-    } else {
-        int rc;
+    if (store->indexFileMapping && store->indexFileMappingSize) 
+    {
+        *(IndexFileCount *)store->indexFileMapping = store->indexFileCount;
+    } 
+    else 
+    {
+        int bytesWritten = 0;
 
-        do rc = pwrite(s->ifd, &s->icount, sizeof(uint32_t), 0);
-        while (rc == -1 && errno == EINTR);
-        
-        if (rc < sizeof(uint32_t)) {
-            perror("write next id");
-            pthread_mutex_unlock(&s->mutex);
-            return LOGSTORE_EIO;
+        do 
+        {
+            bytesWritten = pwrite(store->indexFileNo, &store->indexFileCount, 
+                                  sizeof(store->indexFileCount), 0);
+        }
+        while (bytesWritten == -1 && errno == EINTR);
+
+        if (bytesWritten < sizeof(store->indexFileCount)) 
+        {
+            LogStoreUnlock;
+
+            return kLogStoreInputOutputError;
         }
     }
 
     // If the index file is too big and we're using mmap to access its content,
     // unmap, grow the file, and remap.
 
-    if (s->icount == s->icap && s->imm && s->imm_sz) {
+    if (store->indexFileCount == store->indexFileCapacity && 
+        store->indexFileMapping && store->indexFileMappingSize) 
+    {
         char zero = 0;
-        off_t new_sz;
-        int rc;
+        off_t newSize;
 
-        munmap(s->imm, s->imm_sz);
+        munmap(store->indexFileMapping, store->indexFileMappingSize);
 
-        s->icap += IFILE_GROW_BY;
-        new_sz = s->icap * IENTRY_SZ;
+        store->indexFileCapacity += kIndexFileGrowBy;
+        newSize = store->indexFileCapacity * sizeof(IndexEntry);
 
-        do rc = pwrite(s->ifd, &zero, sizeof(char), new_sz - sizeof(char));
-        while (rc == -1 && errno == EINTR);
-        
-        if (rc < sizeof(char)) {
-            perror("grow index file");
-            pthread_mutex_unlock(&s->mutex);
-            return LOGSTORE_EIO;
+        int bytesWritten = 0;
+
+        do 
+        {
+            bytesWritten = pwrite(store->indexFileNo, &zero, sizeof(char), 
+                                  newSize - sizeof(char));
+        }
+        while (bytesWritten == -1 && errno == EINTR);
+
+        if (bytesWritten < sizeof(char)) 
+        {
+            LogStoreUnlock;
+
+            return kLogStoreInputOutputError;
         }
 
-        s->igrowths++;
+        store->indexFileGrowthCount++;
 
-        s->imm = mmap(0, new_sz, PROT_READ | PROT_WRITE, MAP_SHARED, s->ifd, 0);
-        if (MAP_FAILED == s->imm) {
-            perror("re-mmap index file");
-            s->imm = NULL;
-            s->imm_sz = 0;
-        } else {
-            s->imm_sz = new_sz;
+        store->indexFileMapping = mmap(0, newSize, PROT_READ | PROT_WRITE, 
+                                       MAP_SHARED, store->indexFileNo, 0);
+
+        if (MAP_FAILED == store->indexFileMapping) 
+        {
+            store->indexFileMapping = NULL;
+            store->indexFileMappingSize = 0;
+        } 
+        else 
+        {
+            store->indexFileMappingSize = newSize;
         }
     }
-    
-    pthread_mutex_unlock(&s->mutex);
-    return LOGSTORE_OK;
-}
 
-// index entries are 64-bit numbers with high 16 bits for revision, low 48 bits for log offset.
-// max revisions: ~65K; max log file size: ~260GiB
-// an index file is a sparse file wherein the entry for id X is logstored at byte offset X*8.
+    LogStoreUnlock;
+
+    return kLogStoreOK;
+}
 
 // Get the log-file offset given an index file entry.
 
-static inline uint64_t ientry_ofs(uint64_t e) {
-    return e & 0x0000ffffffffffffLLU;
+static inline off_t indexEntryGetOffset(IndexEntry e) 
+{
+    return e & 0x0000ffffffffffff;
 }
 
 // Get the revision of a given index file entry.
 
-static inline uint16_t ientry_rev(uint64_t e) {
-    return (e & 0xffff000000000000LLU) >> 48;
+static inline LogStoreRevision indexEntryGetRevision(IndexEntry e) 
+{
+    return (e & 0xffff000000000000) >> 48;
 }
 
 // Make an index file entry (offset and revision).
 
-static inline uint64_t ientry_make(uint64_t ofs, uint16_t rev) {
-    uint64_t e = rev;
+static inline IndexEntry indexEntryMake(off_t ofs, LogStoreRevision rev) 
+{
+    IndexEntry e = rev;
+
     e <<= 48;
-    e |= (ofs & 0x0000ffffffffffffLLU);
+    e |= (ofs & 0x0000ffffffffffff);
+
     return e;
 }
 
-// The first 8 bytes of the index file is the count of entries.
+// The index file starts with a count then continues with N entries.
 
-static inline off_t ifile_ofs(uint64_t id) {
-    return 8 + (id << 3);
+static inline off_t indexFileOffsetOf(LogStoreID id) 
+{
+    return sizeof(IndexFileCount) + (id * sizeof(IndexEntry));
 }
 
 // Read an entry from the index file using the mmap if available.
 
-static inline int ifile_read(logstore s, uint64_t id, uint64_t *out_ientry) {
-    if (id > s->icap)
-        return LOGSTORE_EINVAL;
+static inline int indexFileRead(LogStore    store, 
+                                LogStoreID  id, 
+                                IndexEntry *outIndexEntry) 
+{
+    if (id > store->indexFileCapacity)
+    {
+        return kLogStoreInvalidParameter;
+    }
 
-    off_t iofs = ifile_ofs(id);
+    off_t offset = indexFileOffsetOf(id);
 
-    if (s->imm && s->imm_sz) {
-        *out_ientry = *(uint64_t *)((char *)s->imm + iofs);
-    } else {
-        int rc;
-        do rc = pread(s->ifd, out_ientry, IENTRY_SZ, iofs);
-        while (rc == -1 && errno == EINTR);
-        
-        if (rc < IENTRY_SZ) {
-            perror("read index entry");
-            return LOGSTORE_EIO;
+    if (store->indexFileMapping && store->indexFileMappingSize) 
+    {
+        *outIndexEntry = *(IndexEntry *)((char *)store->indexFileMapping + 
+                                         offset);
+    } 
+    else 
+    {
+        int bytesRead = 0;
+
+        do 
+        {
+            bytesRead = pread(store->indexFileNo, outIndexEntry, 
+                           sizeof(IndexEntry), offset);
+        }
+        while (bytesRead == -1 && errno == EINTR);
+
+        if (bytesRead < sizeof(IndexEntry)) 
+        {
+            return kLogStoreInputOutputError;
         }
     }
 
-    return LOGSTORE_OK;
+    return kLogStoreOK;
 }
 
 // Write an entry to the index file using the mmap if available.
 
-static inline int ifile_write(logstore s, uint64_t id, uint64_t ofs, uint16_t rev) {
-    if (id > s->icap)
-        return LOGSTORE_EINVAL;
+static inline int indexFileWrite(LogStore         store, 
+                                 LogStoreID       id, 
+                                 off_t            newEntryOffset, 
+                                 LogStoreRevision newEntryRevision) 
+{
+    if (id >= store->indexFileCapacity)
+    {
+        return kLogStoreInvalidParameter;
+    }
 
-    uint64_t ientry = ientry_make(ofs, rev);
-    off_t iofs = ifile_ofs(id);
+    IndexEntry entry = indexEntryMake(newEntryOffset, newEntryRevision);
 
-    if (s->imm && s->imm_sz) {
-        *(uint64_t *)((char *)s->imm + iofs) = ientry;
-    } else {
-        int rc;
-        do rc = pwrite(s->ifd, &ientry, IENTRY_SZ, iofs);
-        while (rc == -1 && errno == EINTR);
-        
-        if (rc < IENTRY_SZ) {
-            perror("updated index entry");
-            return LOGSTORE_EIO;
+    off_t offset = indexFileOffsetOf(id);
+
+    if (store->indexFileMapping && store->indexFileMappingSize) 
+    {
+        *(IndexEntry *)((char *)store->indexFileMapping + offset) = entry;
+    } 
+    else 
+    {
+        int bytesWritten = 0;
+
+        do 
+        {
+            bytesWritten = pwrite(store->indexFileNo, &entry, 
+                                  sizeof(IndexEntry), offset);
+        }
+        while (bytesWritten == -1 && errno == EINTR);
+
+        if (bytesWritten < sizeof(IndexEntry)) 
+        {
+            return kLogStoreInputOutputError;
         }
     }
 
-    return LOGSTORE_OK;
+    return kLogStoreOK;
 }
 
-logstore_rc logstore_put(logstore s, logstore_id id, void *data, size_t sz, logstore_revision rev) {
-    if (!s || !data || 0 == sz) 
-        return LOGSTORE_EINVAL;
+int LogStorePut(LogStore          store, 
+                LogStoreID        id, 
+                void             *data, 
+                size_t            size, 
+                LogStoreRevision  rev) 
+{
+    if (NULL == store || NULL == data || 0 == size) 
+    {
+        return kLogStoreInvalidParameter;
+    }
 
-    pthread_mutex_lock(&s->mutex);
+    LogStoreLock;
 
     // Get index file entry for id.
 
-    uint64_t ientry = 0;
-    if (ifile_read(s, id, &ientry)) {
-        pthread_mutex_unlock(&s->mutex);
-        return LOGSTORE_EIO;
+    IndexEntry e = 0;
+
+    if (indexFileRead(store, id, &e)) 
+    {
+        LogStoreUnlock;
+
+        return kLogStoreInputOutputError;
     }
 
     // Check for a version conflict.
 
-    if (ientry_rev(ientry) != rev) {
-        pthread_mutex_unlock(&s->mutex);
-        return LOGSTORE_ECONFLICT;
+    if (indexEntryGetRevision(e) != rev) 
+    {
+        LogStoreUnlock;
+
+        return kLogStoreRevisionConflict;
     }
 
     // Append record descriptor and record to log file.
 
-    uint64_t desc[2] = { id, sz };
+    LogFileEntryHeader header = { id, size };
 
-    struct iovec iov[2] = {
-        { desc, sizeof(desc) },
-        { data, sz }
+    struct iovec iov[2] = 
+    {
+        { header, sizeof(header) },
+        { data, size }
     };
 
-    int rc;
-    do rc = writev(s->lfd, iov, 2);
-    while (rc == -1 && errno == EINTR);
-    
-    if (rc < sizeof(desc) + sz) {
-        perror("append to log");
-        pthread_mutex_unlock(&s->mutex);
-        return LOGSTORE_EIO;
+    int bytesWritten = 0;
+
+    do 
+    {
+        bytesWritten = writev(store->logFileNo, iov, 2);
+    }
+    while (bytesWritten == -1 && errno == EINTR);
+
+    if (bytesWritten < sizeof(header) + size) 
+    {
+        LogStoreUnlock;
+
+        return kLogStoreInputOutputError;
     }
 
-    // Update index file entry.
+    // Update index file entry.  The new offset is the size of the log prior to
+    // the record descriptor being written.  The new revision is 1 greater than
+    // the current revision.
 
-    rc = ifile_write(s, id, s->lsz, rev + 1);
-    if (LOGSTORE_OK != rc) {
-        pthread_mutex_unlock(&s->mutex);
-        return rc;
+    int result = indexFileWrite(store, id, store->logFileSize, rev + 1);
+
+    if (kLogStoreOK != result) 
+    {
+        LogStoreUnlock;
+
+        return result;
     }
 
-    s->lsz += sizeof(desc) + sz;
+    store->logFileSize += sizeof(header) + size;
 
-    pthread_mutex_unlock(&s->mutex);
-    return LOGSTORE_OK;
+    LogStoreUnlock;
+
+    return kLogStoreOK;
 }
 
-logstore_rc logstore_get(logstore s, logstore_id id, void **out_data, 
-                   size_t *out_sz, logstore_revision *out_rev) {
+int LogStoreGet(LogStore          store, 
+                LogStoreID        id, 
+                void            **outData, 
+                size_t           *outSize, 
+                LogStoreRevision *outRev) 
+{
+    if (NULL == store || NULL == outData || NULL != *outData) 
+    {
+        return kLogStoreInvalidParameter;
+    }
 
-    if (!s || !out_data || *out_data) 
-        return LOGSTORE_EINVAL;
-
-    pthread_mutex_lock(&s->mutex);
+    LogStoreLock;
 
     // Get index entry for this id.
 
-    uint64_t ientry;
-    int rc = ifile_read(s, id, &ientry);
-    if (LOGSTORE_OK != rc) {
-        pthread_mutex_unlock(&s->mutex);
-        return rc;
+    IndexEntry entry;
+
+    int result = indexFileRead(store, id, &entry);
+
+    if (kLogStoreOK != result) 
+    {
+        LogStoreUnlock;
+
+        return result;
     }
-    
-    if (ientry == (uint64_t) -1) {
-        pthread_mutex_unlock(&s->mutex);
-        return LOGSTORE_ENOENT;
+
+    // Deleted?
+
+    if ((IndexEntry) -1 == entry)
+    {
+        LogStoreUnlock;
+
+        return kLogStoreNotFound;
     }
+
+    off_t            entryOffset   = indexEntryGetOffset(entry);
+    LogStoreRevision entryRevision = indexEntryGetRevision(entry);
 
     // Read the record descriptor from the log.
 
-    uint64_t desc[2] = {0,0};
-    do rc = pread(s->lfd, desc, sizeof(desc), ientry_ofs(ientry)); 
-    while (rc == -1 && errno == EINTR);
-    
-    if (rc < sizeof(desc)) {
-        perror("read record descriptor");
-        pthread_mutex_unlock(&s->mutex);
-        return LOGSTORE_EIO;
+    LogFileEntryHeader header = { 0, 0 };
+
+    int bytesRead = 0;
+
+    do 
+    {
+        bytesRead = pread(store->logFileNo, header, sizeof(header), entryOffset);
     }
+    while (bytesRead == -1 && errno == EINTR);
 
-    // Deleted? Never put? Then, id and size will be 0.
+    if (bytesRead < sizeof(header)) 
+    {
+        LogStoreUnlock;
 
-    if (0 == desc[0] && 0 == desc[1]) {
-        pthread_mutex_unlock(&s->mutex);
-        return LOGSTORE_ENOENT;
+        return kLogStoreInputOutputError;
     }
 
     // Sanity check that the ID in the file is the ID expected.
 
-    if (desc[0] != id) {
-        pthread_mutex_unlock(&s->mutex);
-        return LOGSTORE_ETAMPER;
+    if (header[0] != id || header[1] == 0) 
+    {
+        LogStoreUnlock;
+
+        return kLogStoreTampered;
     }
 
     // Read the log record into user data.
 
-    if (!(*out_data = malloc(desc[1]))) {
-        perror("malloc for log record data");
-        pthread_mutex_unlock(&s->mutex);
-        return LOGSTORE_ENOMEM;
+    *outData = malloc(header[1]);
+
+    if (NULL == *outData) 
+    {
+        LogStoreUnlock;
+
+        return kLogStoreOutOfMemory;
     }
 
-    do rc = pread(s->lfd, *out_data, desc[1], ientry_ofs(ientry) + sizeof(desc));
-    while (rc == -1 && errno == EINTR);
-    
-    if (rc < desc[1]) {
-        perror("read log record");
-        free(*out_data);
-        pthread_mutex_unlock(&s->mutex);
-        return LOGSTORE_EIO;
+    off_t entryDataOffset = entryOffset + sizeof(header);
+
+    bytesRead = 0;
+
+    do 
+    {
+        bytesRead = pread(store->logFileNo, *outData, 
+                          header[1], entryDataOffset);
+    }
+    while (bytesRead == -1 && errno == EINTR);
+
+    if (bytesRead < header[1]) 
+    {
+        free(*outData);
+
+        LogStoreUnlock;
+
+        return kLogStoreInputOutputError;
     }
 
-    if (out_sz)  *out_sz  = desc[1];
-    if (out_rev) *out_rev = ientry_rev(ientry);
+    if (outSize) 
+    {
+        *outSize = header[1];
+    }
 
-    pthread_mutex_unlock(&s->mutex);
-    return LOGSTORE_OK;
+    if (outRev)  
+    {
+        *outRev = entryRevision;
+    }
+
+    LogStoreUnlock;
+
+    return kLogStoreOK;
 }
 
-logstore_rc logstore_rm(logstore s, logstore_id id) {
-    if (!s) return LOGSTORE_EINVAL;
+int LogStoreRemove(LogStore store, LogStoreID id) 
+{
+    if (!store) 
+    {
+        return kLogStoreInvalidParameter;
+    }
 
-    pthread_mutex_lock(&s->mutex);
+    LogStoreLock;
 
     // Clear the index file entry for the ID.
     // Note: we do _not_ free up the ID for reuse.
 
-    int rc = ifile_write(s, id, (uint64_t) -1, (uint16_t) -1);
-    if (LOGSTORE_OK != rc) {
-        pthread_mutex_unlock(&s->mutex);
-        return rc;
+    int result = indexFileWrite(store, id, (off_t) -1, (LogStoreRevision) -1);
+
+    if (kLogStoreOK != result) 
+    {
+        LogStoreUnlock;
+
+        return result;
     }
 
-    // Append a "delete record" (size==-1) to the log file.
+    // Append a "delete record" to the log file.
 
-    uint64_t desc[2] = { id, (uint64_t) -1 };
-    do rc = write(s->lfd, desc, sizeof(desc));
-    while (rc == -1 && errno == EINTR);
-    
-    if (rc < sizeof(desc)) {
-        perror("append delete record");
-        pthread_mutex_unlock(&s->mutex);
-        return LOGSTORE_EIO;
+    LogFileEntryHeader header = { id, 0 };
+
+    int bytesWritten = 0;
+
+    do 
+    {
+        bytesWritten = write(store->logFileNo, header, sizeof(header));
+    }
+    while (bytesWritten == -1 && errno == EINTR);
+
+    if (bytesWritten < sizeof(header)) 
+    {
+        LogStoreUnlock;
+
+        return kLogStoreInputOutputError;
     }
 
-    pthread_mutex_unlock(&s->mutex);
-    return LOGSTORE_OK;
+    LogStoreUnlock;
+
+    return kLogStoreOK;
 }
 
-logstore_rc logstore_sync(logstore s) {
-    if (!s) return LOGSTORE_EINVAL;
-
-    pthread_mutex_lock(&s->mutex);
-
-    fsync(s->lfd);
-
-    if (s->imm && s->imm_sz) msync(s->imm, s->imm_sz, MS_SYNC);
-    else fsync(s->ifd);
-
-    pthread_mutex_unlock(&s->mutex);
-    return LOGSTORE_OK;
-}
-
-logstore_rc logstore_close(logstore *sp) {
-    if (!sp || !*sp) 
-        return LOGSTORE_EINVAL;
-
-    logstore s = *sp;
-
-    pthread_mutex_lock(&s->mutex);
-
-    if (s->imm && s->imm_sz) 
-        munmap(s->imm, s->imm_sz);
-
-    close(s->lfd);
-    close(s->ifd);
-
-    pthread_mutex_unlock(&s->mutex);
-    pthread_mutex_destroy(&s->mutex);
-
-    return LOGSTORE_OK;
-}
-
-char *logstore_strerror(logstore_rc code) {
-    switch (code) {
-        case LOGSTORE_OK:           return "success";
-        case LOGSTORE_EIO:          return "input/output error";
-        case LOGSTORE_ENOMEM:       return "out of memory";
-        case LOGSTORE_EINVAL:       return "bad argument(s)";
-        case LOGSTORE_ENOENT:       return "no such entity";
-        case LOGSTORE_ETAMPER:      return "data was tampered with";
-        case LOGSTORE_ECONFLICT:    return "revision conflict";
+int LogStoreSync(LogStore store) 
+{
+    if (!store) 
+    {
+        return kLogStoreInvalidParameter;
     }
-    
+
+    LogStoreLock;
+
+    fsync(store->logFileNo);
+
+    if (store->indexFileMapping && store->indexFileMappingSize) 
+    {
+        msync(store->indexFileMapping, store->indexFileMappingSize, MS_SYNC);
+    }
+    else 
+    {
+        fsync(store->indexFileNo);
+    }
+
+    LogStoreUnlock;
+
+    return kLogStoreOK;
+}
+
+int LogStoreClose(LogStore *sp) 
+{
+    if (NULL == sp || NULL == *sp) 
+    {
+        return kLogStoreInvalidParameter;
+    }
+
+    LogStore store = *sp;
+
+    LogStoreLock;
+
+    if (store->indexFileMapping && store->indexFileMappingSize) 
+    {
+        munmap(store->indexFileMapping, store->indexFileMappingSize);
+    }
+
+    close(store->logFileNo);
+    close(store->indexFileNo);
+
+    LogStoreUnlock;
+
+    pthread_mutex_destroy(&store->mutex);
+
+    return kLogStoreOK;
+}
+
+char *LogStoreDescribe(int code) 
+{
+    switch (code) 
+    {
+        case kLogStoreOK:               return "success";
+        case kLogStoreInputOutputError: return "input/output error";
+        case kLogStoreOutOfMemory:      return "out of memory";
+        case kLogStoreInvalidParameter: return "bad argument(s)";
+        case kLogStoreNotFound:         return "no such entity";
+        case kLogStoreTampered:         return "data was tampered with";
+        case kLogStoreRevisionConflict: return "revision conflict";
+    }
+
     return NULL;
 }
