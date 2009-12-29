@@ -7,20 +7,20 @@ libstore.a: store.o
 	ranlib libstore.a
 
 store.o: store.c store.h
-	gcc -g -c store.c -std=c99
+	gcc -c store.c -std=c99
 
 test_store: test_store.c libstore.a
-	rm -f log log__index
-	gcc -o test_store -std=c99 test_store.c -L. -lstore -pthread
-	./test_store
+	gcc -o test_store -std=c99 -O2 test_store.c -L. -lstore -pthread
 
 check: test_store
+	rm -f log log__index
+	./test_store
 
-test: test_store
+test: check
 
 bench_store: bench_store.c libstore.a
 	rm -f log log__index
-	gcc -o bench_store -std=c99 -g bench_store.c -L. -lstore
+	gcc -o bench_store -std=c99 -O2 bench_store.c -L. -lstore
 	./bench_store
 
 bench: bench_store

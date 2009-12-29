@@ -1,106 +1,103 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>
-#include <assert.h>
 #include <sys/time.h> 
 #include <unistd.h>
 #include "store.h"
 
 #define ENTRY_COUNT 1000
 
+int failures = 0, tests = 0;
+
+#define CHECK(expr) \
+    if (!(expr)) { \
+        printf("%c[5;31m**FAILURE**%c[0;m ", 27, 27); \
+        printf(#expr " (%s:%s:%d)\n", __FILE__, __FUNCTION__, __LINE__); \
+        ++failures; \
+    } \
+    ++tests;
+
 // The log size is initially 0 and there are no entries in the corresponding
 // index file.  index file should be grown to non-zero size upon creating a new
 // log.  we should be able to map a small index file into memory.
 
 void test_open_new_log() {
-    puts(__FUNCTION__);
     unlink("log");
     unlink("log__index");
     struct store s;
-    assert(STORE_OK == store_open(&s, "log"));
-    assert(s.ifd > 2); // [0,2] stdin/out/err
-    assert(s.lfd > 2);
-    assert(s.lsz == 0);
-    assert(s.icount == 0);
-    assert(s.icap > 0);
-    assert(s.imm != NULL);
-    assert(s.imm_sz > 0);
-    assert(STORE_OK == store_close(&s));
-    puts("test_open_new_log: PASS");
+    CHECK(STORE_OK == store_open(&s, "log"));
+    CHECK(s.ifd > 2); // [0,2] stdin/out/err
+    CHECK(s.lfd > 2);
+    CHECK(s.lsz == 0);
+    CHECK(s.icount == 0);
+    CHECK(s.icap > 0);
+    CHECK(s.imm != NULL);
+    CHECK(s.imm_sz > 0);
+    CHECK(STORE_OK == store_close(&s));
 }
 
 void test_open_existing_but_empty_log() {
-    puts(__FUNCTION__);
     struct store s;
-    assert(STORE_OK == store_open(&s, "log"));
-    assert(s.ifd > 2); // [0,2] stdin/out/err
-    assert(s.lfd > 2);
-    assert(s.lsz == 0);
-    assert(s.icount == 0);
-    assert(s.icap > 0);
-    assert(s.imm != NULL);
-    assert(s.imm_sz > 0);
-    assert(STORE_OK == store_close(&s));
-    puts("test_open_existing_but_empty_log: PASS");
+    CHECK(STORE_OK == store_open(&s, "log"));
+    CHECK(s.ifd > 2); // [0,2] stdin/out/err
+    CHECK(s.lfd > 2);
+    CHECK(s.lsz == 0);
+    CHECK(s.icount == 0);
+    CHECK(s.icap > 0);
+    CHECK(s.imm != NULL);
+    CHECK(s.imm_sz > 0);
+    CHECK(STORE_OK == store_close(&s));
 }
 
 void test_id_generation() {
-    puts(__FUNCTION__);
     struct store s;
-    assert(STORE_OK == store_open(&s, "log"));
+    CHECK(STORE_OK == store_open(&s, "log"));
     for (int i=0; i<ENTRY_COUNT; ++i) {
         struct stored v;
-        assert(STORE_OK == store_genid(&s, &v));
-        assert(v.id == i);
+        CHECK(STORE_OK == store_genid(&s, &v));
+        CHECK(v.id == i);
     }
-    assert(STORE_OK == store_close(&s));
-    puts("test_id_generation: PASS");
+    CHECK(STORE_OK == store_close(&s));
 }
 
 void test_put() {
-    puts(__FUNCTION__);
     struct store s;
-    assert(STORE_OK == store_open(&s, "log"));
+    CHECK(STORE_OK == store_open(&s, "log"));
     for (int i=0; i<ENTRY_COUNT; ++i) {
         struct stored v = STORED_PUT_INITIALIZER(&i, sizeof(int));
         v.id = i;
-        assert(STORE_OK == store_put(&s, &v));
+        CHECK(STORE_OK == store_put(&s, &v));
     }
     struct stat lst;
-    assert(fstat(s.lfd, &lst) != -1);
-    assert(lst.st_size == ENTRY_COUNT * (sizeof(uint64_t)*2 + sizeof(int)));
-    assert(STORE_OK == store_close(&s));
-    puts("test_put: PASS");
+    CHECK(fstat(s.lfd, &lst) != -1);
+    CHECK(lst.st_size == ENTRY_COUNT * (sizeof(uint64_t)*2 + sizeof(int)));
+    CHECK(STORE_OK == store_close(&s));
 }
 
 void test_open_existing_non_empty_log() {
-    puts(__FUNCTION__);
     struct store s;
-    assert(STORE_OK == store_open(&s, "log"));
-    assert(s.ifd > 2); // [0,2] stdin/out/err
-    assert(s.lfd > 2);
-    assert(s.lsz == ENTRY_COUNT * (sizeof(uint64_t)*2 + sizeof(int)));
-    assert(s.icount == ENTRY_COUNT);
-    assert(s.icap >= ENTRY_COUNT);
-    assert(s.imm != NULL);
-    assert(s.imm_sz > 0);
-    assert(STORE_OK == store_close(&s));
-    puts("test_open_existing_non_empty_log: PASS");
+    CHECK(STORE_OK == store_open(&s, "log"));
+    CHECK(s.ifd > 2); // [0,2] stdin/out/err
+    CHECK(s.lfd > 2);
+    CHECK(s.lsz == ENTRY_COUNT * (sizeof(uint64_t)*2 + sizeof(int)));
+    CHECK(s.icount == ENTRY_COUNT);
+    CHECK(s.icap >= ENTRY_COUNT);
+    CHECK(s.imm != NULL);
+    CHECK(s.imm_sz > 0);
+    CHECK(STORE_OK == store_close(&s));
 }
 
 void test_get() {
-    puts(__FUNCTION__);
     struct store s;
-    assert(STORE_OK == store_open(&s, "log"));
+    CHECK(STORE_OK == store_open(&s, "log"));
     for (int i=0; i<ENTRY_COUNT; ++i) {
         struct stored v = STORED_GET_INITIALIZER(i);
-        assert(STORE_OK == store_get(&s, &v));
-        assert(v.sz == sizeof(int));
-        assert(*(int *)v.data == i);
+        CHECK(STORE_OK == store_get(&s, &v));
+        CHECK(v.sz == sizeof(int));
+        CHECK(*(int *)v.data == i);
         free(v.data);
     }
-    assert(STORE_OK == store_close(&s));
-    puts("test_get: PASS");
+    CHECK(STORE_OK == store_close(&s));
 }
 
 // Get 2 copies of entry with ID 0.  Put one of the copies back so its revision
@@ -109,32 +106,28 @@ void test_get() {
 // 'latest' revision of entry with ID 0.
 
 void test_confict_detection() {
-    puts(__FUNCTION__);
     struct store s;
-    assert(STORE_OK == store_open(&s, "log"));
+    CHECK(STORE_OK == store_open(&s, "log"));
     struct stored a = STORED_GET_INITIALIZER(0);
-    assert(STORE_OK == store_get(&s, &a));
+    CHECK(STORE_OK == store_get(&s, &a));
     struct stored b = STORED_GET_INITIALIZER(0);
-    assert(STORE_OK == store_get(&s, &b));
-    assert(STORE_OK == store_put(&s, &a));
-    assert(a.rev == b.rev + 1);    
-    assert(store_put(&s, &b));
-    assert(STORE_OK == store_close(&s));
-    puts("test_confict_detection: PASS");
+    CHECK(STORE_OK == store_get(&s, &b));
+    CHECK(STORE_OK == store_put(&s, &a));
+    CHECK(a.rev == b.rev + 1);    
+    CHECK(store_put(&s, &b));
+    CHECK(STORE_OK == store_close(&s));
 }
 
 void test_remove() {
-    puts(__FUNCTION__);
     struct store s;
-    assert(STORE_OK == store_open(&s, "log"));
+    CHECK(STORE_OK == store_open(&s, "log"));
     struct stored v = STORED_GET_INITIALIZER(0);
-    assert(STORE_OK == store_get(&s, &v));       // exists from earlier tests
-    assert(STORE_OK == store_rm(&s, &v));
-    assert(STORE_ENOENT == store_get(&s, &v));   // gone
+    CHECK(STORE_OK == store_get(&s, &v));       // exists from earlier tests
+    CHECK(STORE_OK == store_rm(&s, &v));
+    CHECK(STORE_ENOENT == store_get(&s, &v));   // removed
     v.id = (uint64_t) -1;
-    assert(STORE_EINVAL == store_rm(&s, &v));    // way beyond any existing entry's ID
-    assert(STORE_OK == store_close(&s));
-    puts("test_remove: PASS");
+    CHECK(STORE_EINVAL == store_rm(&s, &v));    // way beyond any existing entry's ID
+    CHECK(STORE_OK == store_close(&s));
 }
 
 int main(int argc, char **argv) {
@@ -148,6 +141,6 @@ int main(int argc, char **argv) {
     test_get();
     test_confict_detection();
     test_remove();
-    puts("all tests passed");
-    return 0;
+    printf("%c[5;33m%d tests, %d failure(s)%c[0;m\n", 27, tests, failures, 27);
+    return failures;
 }
